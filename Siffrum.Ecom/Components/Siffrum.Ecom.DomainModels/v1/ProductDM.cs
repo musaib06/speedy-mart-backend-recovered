@@ -49,6 +49,25 @@ namespace Siffrum.Ecom.DomainModels.v1
         [Column("approval_status")]
         public ProductStatusDM ApprovalStatus { get; set; } = ProductStatusDM.Active;
 
+        [Column("submitted_by_seller_id")]
+        public long? SubmittedBySellerIdRaw { get; set; }
+
+        [Column("submitted_at")]
+        public DateTime? SubmittedAt { get; set; }
+
+        [Column("approved_by_admin_id")]
+        public long? ApprovedByAdminIdRaw { get; set; }
+
+        [Column("approved_at")]
+        public DateTime? ApprovedAt { get; set; }
+
+        [Column("rejection_reason")]
+        public string? RejectionReason { get; set; }
+
+        // SpeedyMart-specific: product overview as JSON (array of strings)
+        [Column("overview_points", TypeName = "jsonb")]
+        public string? OverviewPoints { get; set; }
+
         public ICollection<ProductVariantDM> ProductVariants { get; set; } 
 
     }

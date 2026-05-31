@@ -17,7 +17,7 @@ namespace Siffrum.Ecom.BAL.LoginUsers
         {
         }
 
-        public async Task<AdminDashboardResponseSM> GetDashboardAsync(DateTime? date = null)
+        public async Task<AdminDashboardResponseSM> GetDashboardAsync(DateTime? date = null, int? platform = null)
         {
             var istToday = IstDateHelper.Today;
             var selectedDay = date?.Date ?? istToday;
@@ -26,17 +26,22 @@ namespace Siffrum.Ecom.BAL.LoginUsers
             var firstDayOfMonth = IstDateHelper.IstDayStartUtc(new DateTime(selectedDay.Year, selectedDay.Month, 1));
             var weekStart = IstDateHelper.IstDayStartUtc(selectedDay.AddDays(-7));
 
+            // Optional platform filter: 1=HotBox, 2=SpeedyMart, null=all
+            PlatformTypeDM? platformFilter = platform.HasValue ? (PlatformTypeDM)platform.Value : null;
+
             var response = new AdminDashboardResponseSM();
 
             #region PLATFORM KPIs
 
             try
             {
-                var monthlyOrders = await _apiDbContext.Order
+                var monthlyOrdersQuery = _apiDbContext.Order
                     .Where(o => o.CreatedAt >= firstDayOfMonth
                         && o.PaymentStatus == PaymentStatusDM.Paid
-                        && o.OrderStatus == OrderStatusDM.Delivered)
-                    .ToListAsync();
+                        && o.OrderStatus == OrderStatusDM.Delivered);
+                if (platformFilter.HasValue)
+                    monthlyOrdersQuery = monthlyOrdersQuery.Where(o => o.PlatformType == platformFilter.Value);
+                var monthlyOrders = await monthlyOrdersQuery.ToListAsync();
 
                 response.PlatformKpis.GmvThisMonth = monthlyOrders.Sum(x => x.Amount);
 
@@ -56,11 +61,12 @@ namespace Siffrum.Ecom.BAL.LoginUsers
                 }
                 catch { response.PlatformKpis.PlatformCommissionEarned = 0; }
 
-                response.PlatformKpis.TotalOrdersToday =
-                    await _apiDbContext.Order
-                        .Where(x => x.CreatedAt >= dayStart && x.CreatedAt < dayEnd
-                            && x.OrderStatus != OrderStatusDM.AwaitingPayment)
-                        .CountAsync();
+                var todayQuery = _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= dayStart && x.CreatedAt < dayEnd
+                        && x.OrderStatus != OrderStatusDM.AwaitingPayment);
+                if (platformFilter.HasValue)
+                    todayQuery = todayQuery.Where(x => x.PlatformType == platformFilter.Value);
+                response.PlatformKpis.TotalOrdersToday = await todayQuery.CountAsync();
 
                 response.PlatformKpis.ActiveVendors =
                     await _apiDbContext.Seller
@@ -72,12 +78,13 @@ namespace Siffrum.Ecom.BAL.LoginUsers
                         .Where(x => x.CreatedAt >= weekStart)
                         .CountAsync();
 
-                response.PlatformKpis.PendingRefundRequests =
-                    await _apiDbContext.Order
-                        .Where(x => x.PaymentStatus == PaymentStatusDM.RefundInitiated
-                            || (x.PaymentStatus == PaymentStatusDM.Paid
-                                && (x.OrderStatus == OrderStatusDM.Returned || x.OrderStatus == OrderStatusDM.Cancelled || x.OrderStatus == OrderStatusDM.CancelledBySeller)))
-                        .CountAsync();
+                var refundQuery = _apiDbContext.Order
+                    .Where(x => x.PaymentStatus == PaymentStatusDM.RefundInitiated
+                        || (x.PaymentStatus == PaymentStatusDM.Paid
+                            && (x.OrderStatus == OrderStatusDM.Returned || x.OrderStatus == OrderStatusDM.Cancelled || x.OrderStatus == OrderStatusDM.CancelledBySeller)));
+                if (platformFilter.HasValue)
+                    refundQuery = refundQuery.Where(x => x.PlatformType == platformFilter.Value);
+                response.PlatformKpis.PendingRefundRequests = await refundQuery.CountAsync();
             }
             catch { }
 
@@ -90,10 +97,13 @@ namespace Siffrum.Ecom.BAL.LoginUsers
                 var istOffset = TimeSpan.FromHours(5.5);
                 var last30Days = IstDateHelper.IstDayStartUtc(istToday.AddDays(-30));
 
-                var rawRevenue = await _apiDbContext.Order
+                var revenueQuery = _apiDbContext.Order
                     .Where(x => x.CreatedAt >= last30Days
                         && x.PaymentStatus == PaymentStatusDM.Paid
-                        && x.OrderStatus == OrderStatusDM.Delivered)
+                        && x.OrderStatus == OrderStatusDM.Delivered);
+                if (platformFilter.HasValue)
+                    revenueQuery = revenueQuery.Where(x => x.PlatformType == platformFilter.Value);
+                var rawRevenue = await revenueQuery
                     .Select(x => new { x.Amount, x.CreatedAt })
                     .ToListAsync();
 
@@ -118,8 +128,11 @@ namespace Siffrum.Ecom.BAL.LoginUsers
                 }
                 response.RevenueAnalytics.CommissionTrend = filledRevenue;
 
-                var rawTotals = await _apiDbContext.Order
-                    .Where(x => x.CreatedAt >= last30Days)
+                var totalsQuery = _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= last30Days);
+                if (platformFilter.HasValue)
+                    totalsQuery = totalsQuery.Where(x => x.PlatformType == platformFilter.Value);
+                var rawTotals = await totalsQuery
                     .Select(x => new { x.OrderStatus, x.CreatedAt })
                     .ToListAsync();
 
@@ -230,43 +243,48 @@ namespace Siffrum.Ecom.BAL.LoginUsers
 
             try
             {
-                response.OrderHealth.OrdersByStatus =
-                    await _apiDbContext.Order
-                        .Where(x => x.CreatedAt >= dayStart && x.CreatedAt < dayEnd)
-                        .GroupBy(x => x.OrderStatus)
-                        .Select(g => new OrderStatusCountSM
-                        {
-                            Status = g.Key.ToString(),
-                            Count = g.Count()
-                        }).ToListAsync();
+                var orderStatusQuery = _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= dayStart && x.CreatedAt < dayEnd);
+                if (platformFilter.HasValue)
+                    orderStatusQuery = orderStatusQuery.Where(x => x.PlatformType == platformFilter.Value);
+                response.OrderHealth.OrdersByStatus = await orderStatusQuery
+                    .GroupBy(x => x.OrderStatus)
+                    .Select(g => new OrderStatusCountSM
+                    {
+                        Status = g.Key.ToString(),
+                        Count = g.Count()
+                    }).ToListAsync();
             }
             catch { }
 
             try
             {
-                response.OrderHealth.InQueueOrders =
-                    await _apiDbContext.Order
-                        .Where(x => x.OrderStatus == OrderStatusDM.SellerAccepted
-                            || x.OrderStatus == OrderStatusDM.Processing
-                            || x.OrderStatus == OrderStatusDM.Shipped
-                            || x.OrderStatus == OrderStatusDM.Assigned
-                            || x.OrderStatus == OrderStatusDM.PickedUp
-                            || x.OrderStatus == OrderStatusDM.OutForDelivery)
-                        .CountAsync();
+                var inQueueQuery = _apiDbContext.Order
+                    .Where(x => x.OrderStatus == OrderStatusDM.SellerAccepted
+                        || x.OrderStatus == OrderStatusDM.Processing
+                        || x.OrderStatus == OrderStatusDM.Shipped
+                        || x.OrderStatus == OrderStatusDM.Assigned
+                        || x.OrderStatus == OrderStatusDM.PickedUp
+                        || x.OrderStatus == OrderStatusDM.OutForDelivery);
+                if (platformFilter.HasValue)
+                    inQueueQuery = inQueueQuery.Where(x => x.PlatformType == platformFilter.Value);
+                response.OrderHealth.InQueueOrders = await inQueueQuery.CountAsync();
             }
             catch { }
 
             try
             {
-                response.OrderHealth.FailedPayments =
-                    await _apiDbContext.Order
-                        .Where(x => x.PaymentStatus == PaymentStatusDM.Failed)
-                        .CountAsync();
+                var failedQuery = _apiDbContext.Order
+                    .Where(x => x.PaymentStatus == PaymentStatusDM.Failed);
+                if (platformFilter.HasValue)
+                    failedQuery = failedQuery.Where(x => x.PlatformType == platformFilter.Value);
+                response.OrderHealth.FailedPayments = await failedQuery.CountAsync();
 
-                response.OrderHealth.PendingPayments =
-                    await _apiDbContext.Order
-                        .Where(x => x.PaymentStatus == PaymentStatusDM.Pending)
-                        .CountAsync();
+                var pendingQuery = _apiDbContext.Order
+                    .Where(x => x.PaymentStatus == PaymentStatusDM.Pending);
+                if (platformFilter.HasValue)
+                    pendingQuery = pendingQuery.Where(x => x.PlatformType == platformFilter.Value);
+                response.OrderHealth.PendingPayments = await pendingQuery.CountAsync();
             }
             catch { }
 
@@ -276,8 +294,11 @@ namespace Siffrum.Ecom.BAL.LoginUsers
 
             try
             {
-                var paymentModes = await _apiDbContext.Order
-                    .Where(x => x.CreatedAt >= firstDayOfMonth)
+                var payQuery = _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= firstDayOfMonth);
+                if (platformFilter.HasValue)
+                    payQuery = payQuery.Where(x => x.PlatformType == platformFilter.Value);
+                var paymentModes = await payQuery
                     .GroupBy(x => x.PaymentMode)
                     .Select(g => new PaymentModeCountSM
                     {
@@ -299,8 +320,11 @@ namespace Siffrum.Ecom.BAL.LoginUsers
             {
                 var last7Days = IstDateHelper.IstDayStartUtc(istToday.AddDays(-7));
 
-                var hourlyOrders = await _apiDbContext.Order
-                    .Where(x => x.CreatedAt >= last7Days)
+                var hourlyQuery = _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= last7Days);
+                if (platformFilter.HasValue)
+                    hourlyQuery = hourlyQuery.Where(x => x.PlatformType == platformFilter.Value);
+                var hourlyOrders = await hourlyQuery
                     .GroupBy(x => x.CreatedAt.Value.Hour)
                     .Select(g => new HourlyOrderSM
                     {
@@ -339,6 +363,525 @@ namespace Siffrum.Ecom.BAL.LoginUsers
                     .ToListAsync();
 
                 response.CategoryRevenue = categoryRevenue;
+            }
+            catch { }
+
+            #endregion
+
+            #region PERFORMANCE METRICS
+
+            try
+            {
+                var perfQuery = _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= firstDayOfMonth);
+                if (platformFilter.HasValue)
+                    perfQuery = perfQuery.Where(x => x.PlatformType == platformFilter.Value);
+
+                var allOrders = await perfQuery
+                    .Select(x => new
+                    {
+                        x.OrderStatus,
+                        x.PaymentStatus,
+                        x.CreatedAt,
+                        x.ExpectedDeliveryDate,
+                        x.Amount
+                    })
+                    .ToListAsync();
+
+                var totalOrdersCount = allOrders.Count;
+                var deliveredOrders = allOrders.Where(x => x.OrderStatus == OrderStatusDM.Delivered).ToList();
+
+                // Perfect Order Rate: Orders delivered on time, complete, and paid
+                var perfectOrders = deliveredOrders.Count(x =>
+                    x.PaymentStatus == PaymentStatusDM.Paid &&
+                    (!x.ExpectedDeliveryDate.HasValue || x.CreatedAt <= x.ExpectedDeliveryDate.Value));
+                response.PerformanceMetrics.PerfectOrderRate = totalOrdersCount > 0
+                    ? Math.Round((double)perfectOrders / totalOrdersCount * 100, 2)
+                    : 0;
+                response.PerformanceMetrics.TotalOrders = totalOrdersCount;
+                response.PerformanceMetrics.PerfectOrders = perfectOrders;
+
+                // Fill Rate: Orders that were successfully delivered vs total orders
+                response.PerformanceMetrics.FillRate = totalOrdersCount > 0
+                    ? Math.Round((double)deliveredOrders.Count / totalOrdersCount * 100, 2)
+                    : 0;
+
+                // Delivered Accuracy: On-time deliveries / total deliveries
+                var onTimeDeliveries = deliveredOrders.Count(x =>
+                    !x.ExpectedDeliveryDate.HasValue || x.CreatedAt <= x.ExpectedDeliveryDate.Value);
+                response.PerformanceMetrics.DeliveredAccuracyRate = deliveredOrders.Count > 0
+                    ? Math.Round((double)onTimeDeliveries / deliveredOrders.Count * 100, 2)
+                    : 0;
+                response.PerformanceMetrics.OnTimeDeliveries = onTimeDeliveries;
+                response.PerformanceMetrics.CompleteDeliveries = deliveredOrders.Count;
+            }
+            catch { }
+
+            #endregion
+
+            #region RETURN RATE ANALYTICS
+
+            try
+            {
+                var returnQuery = _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= firstDayOfMonth);
+                if (platformFilter.HasValue)
+                    returnQuery = returnQuery.Where(x => x.PlatformType == platformFilter.Value);
+
+                var allOrdersForReturns = await returnQuery
+                    .Select(x => new { x.OrderStatus, x.PaymentStatus })
+                    .ToListAsync();
+
+                var totalOrdersForReturns = allOrdersForReturns.Count;
+                var returnedOrders = allOrdersForReturns.Count(x => x.OrderStatus == OrderStatusDM.Returned);
+                var refundedOrders = allOrdersForReturns.Count(x => x.PaymentStatus == PaymentStatusDM.RefundInitiated || x.PaymentStatus == PaymentStatusDM.Refunded);
+                var cancelledOrders = allOrdersForReturns.Count(x => x.OrderStatus == OrderStatusDM.Cancelled || x.OrderStatus == OrderStatusDM.CancelledBySeller);
+
+                response.ReturnRateAnalytics.TotalOrders = totalOrdersForReturns;
+                response.ReturnRateAnalytics.ReturnedOrders = returnedOrders;
+                response.ReturnRateAnalytics.RefundedOrders = refundedOrders;
+                response.ReturnRateAnalytics.CancelledOrders = cancelledOrders;
+
+                response.ReturnRateAnalytics.OverallReturnRate = totalOrdersForReturns > 0
+                    ? Math.Round((double)returnedOrders / totalOrdersForReturns * 100, 2)
+                    : 0;
+                response.ReturnRateAnalytics.RefundRate = totalOrdersForReturns > 0
+                    ? Math.Round((double)refundedOrders / totalOrdersForReturns * 100, 2)
+                    : 0;
+                response.ReturnRateAnalytics.CancellationRate = totalOrdersForReturns > 0
+                    ? Math.Round((double)cancelledOrders / totalOrdersForReturns * 100, 2)
+                    : 0;
+            }
+            catch { }
+
+            #endregion
+
+            #region CUSTOMER LTV
+
+            try
+            {
+                var customerOrders = await _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= firstDayOfMonth &&
+                                x.PaymentStatus == PaymentStatusDM.Paid &&
+                                x.OrderStatus == OrderStatusDM.Delivered)
+                    .GroupBy(x => x.UserId)
+                    .Select(g => new
+                    {
+                        UserId = g.Key,
+                        TotalSpent = g.Sum(x => x.Amount),
+                        OrderCount = g.Count()
+                    })
+                    .ToListAsync();
+
+                var totalCustomers = customerOrders.Count;
+                var totalLtv = customerOrders.Sum(x => x.TotalSpent);
+                var avgLtv = totalCustomers > 0 ? totalLtv / totalCustomers : 0;
+
+                response.CustomerLtv.TotalCustomers = totalCustomers;
+                response.CustomerLtv.TotalLtv = (double)totalLtv;
+                response.CustomerLtv.AverageLtv = (double)avgLtv;
+
+                // Segment customers by LTV
+                var segments = new List<CustomerLtvSegmentSM>();
+                if (totalCustomers > 0)
+                {
+                    var low = customerOrders.Where(x => x.TotalSpent < 500).ToList();
+                    var medium = customerOrders.Where(x => x.TotalSpent >= 500 && x.TotalSpent < 2000).ToList();
+                    var high = customerOrders.Where(x => x.TotalSpent >= 2000).ToList();
+
+                    segments.Add(new CustomerLtvSegmentSM
+                    {
+                        Segment = "Low (< ₹500)",
+                        CustomerCount = low.Count,
+                        AverageLtv = low.Count > 0 ? (double)low.Average(x => x.TotalSpent) : 0
+                    });
+                    segments.Add(new CustomerLtvSegmentSM
+                    {
+                        Segment = "Medium (₹500-₹2000)",
+                        CustomerCount = medium.Count,
+                        AverageLtv = medium.Count > 0 ? (double)medium.Average(x => x.TotalSpent) : 0
+                    });
+                    segments.Add(new CustomerLtvSegmentSM
+                    {
+                        Segment = "High (≥ ₹2000)",
+                        CustomerCount = high.Count,
+                        AverageLtv = high.Count > 0 ? (double)high.Average(x => x.TotalSpent) : 0
+                    });
+                }
+                response.CustomerLtv.Segments = segments;
+            }
+            catch { }
+
+            #endregion
+
+            #region NPS METRICS
+
+            try
+            {
+                // Use ProductRating for NPS calculation
+                var ratings = await _apiDbContext.ProductRating
+                    .Where(x => x.CreatedAt >= firstDayOfMonth && x.Rate > 0)
+                    .Select(x => x.Rate)
+                    .ToListAsync();
+
+                var totalResponses = ratings.Count;
+                if (totalResponses > 0)
+                {
+                    var promoters = ratings.Count(x => x >= 4);
+                    var passives = ratings.Count(x => x == 3);
+                    var detractors = ratings.Count(x => x <= 2);
+                    var avgRating = ratings.Any() ? ratings.Average(x => x) : 0;
+
+                    response.NpsMetrics.TotalResponses = totalResponses;
+                    response.NpsMetrics.Promoters = promoters;
+                    response.NpsMetrics.Passives = passives;
+                    response.NpsMetrics.Detractors = detractors;
+                    response.NpsMetrics.AverageRating = Math.Round(avgRating, 2);
+
+                    // NPS = (Promoters - Detractors) / Total * 100
+                    response.NpsMetrics.NpsScore = Math.Round((double)(promoters - detractors) / totalResponses * 100, 2);
+
+                    // Response rate (based on delivered orders as approximate base)
+                    var deliveredCount = await _apiDbContext.Order
+                        .Where(x => x.CreatedAt >= firstDayOfMonth && x.OrderStatus == OrderStatusDM.Delivered)
+                        .CountAsync();
+                    response.NpsMetrics.ResponseRate = deliveredCount > 0
+                        ? Math.Round((double)totalResponses / deliveredCount * 100, 2)
+                        : 0;
+                }
+            }
+            catch { }
+
+            #endregion
+
+            #region GROWTH METRICS (DAU, MAU, User Growth)
+
+            try
+            {
+                // DAU - Daily Active Users
+                var todayStart = IstDateHelper.IstDayStartUtc(istToday);
+                var todayEnd = IstDateHelper.IstDayEndUtc(istToday);
+                var yesterdayStart = IstDateHelper.IstDayStartUtc(istToday.AddDays(-1));
+                var yesterdayEnd = IstDateHelper.IstDayEndUtc(istToday.AddDays(-1));
+                var growthWeekStart = IstDateHelper.IstDayStartUtc(istToday.AddDays(-7));
+                var growthMonthStart = IstDateHelper.IstDayStartUtc(istToday.AddDays(-30));
+
+                // Today's active users (users who placed orders or logged in)
+                var todayActiveUsers = await _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= todayStart && x.CreatedAt < todayEnd)
+                    .Select(x => x.UserId)
+                    .Distinct()
+                    .CountAsync();
+
+                // Yesterday's active users
+                var yesterdayActiveUsers = await _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= yesterdayStart && x.CreatedAt < yesterdayEnd)
+                    .Select(x => x.UserId)
+                    .Distinct()
+                    .CountAsync();
+
+                // Week average DAU
+                var dailyActiveUserCounts = new List<int>();
+                for (int i = 0; i < 7; i++)
+                {
+                    var dauDay = istToday.AddDays(-i);
+                    var dauDayStart = IstDateHelper.IstDayStartUtc(dauDay);
+                    var dauDayEnd = IstDateHelper.IstDayEndUtc(dauDay);
+                    var dauCount = await _apiDbContext.Order
+                        .Where(x => x.CreatedAt >= dauDayStart && x.CreatedAt < dauDayEnd)
+                        .Select(x => x.UserId)
+                        .Distinct()
+                        .CountAsync();
+                    dailyActiveUserCounts.Add(dauCount);
+                }
+                var weekAverageDau = (int)dailyActiveUserCounts.Average();
+
+                // Month average DAU
+                var monthlyActiveUserCounts = new List<int>();
+                for (int i = 0; i < 30; i++)
+                {
+                    var mauDay = istToday.AddDays(-i);
+                    var mauDayStart = IstDateHelper.IstDayStartUtc(mauDay);
+                    var mauDayEnd = IstDateHelper.IstDayEndUtc(mauDay);
+                    var mauCount = await _apiDbContext.Order
+                        .Where(x => x.CreatedAt >= mauDayStart && x.CreatedAt < mauDayEnd)
+                        .Select(x => x.UserId)
+                        .Distinct()
+                        .CountAsync();
+                    monthlyActiveUserCounts.Add(mauCount);
+                }
+                var monthAverageDau = (int)monthlyActiveUserCounts.Average();
+
+                // DAU change percentage
+                var dauChangePercent = yesterdayActiveUsers > 0
+                    ? Math.Round((double)(todayActiveUsers - yesterdayActiveUsers) / yesterdayActiveUsers * 100, 2)
+                    : 0;
+
+                // DAU trend (last 14 days)
+                var dauTrend = new List<DauDataPointSM>();
+                for (int i = 13; i >= 0; i--)
+                {
+                    var trendDay = istToday.AddDays(-i);
+                    var trendDayStart = IstDateHelper.IstDayStartUtc(trendDay);
+                    var trendDayEnd = IstDateHelper.IstDayEndUtc(trendDay);
+
+                    var orders = await _apiDbContext.Order
+                        .Where(x => x.CreatedAt >= trendDayStart && x.CreatedAt < trendDayEnd)
+                        .ToListAsync();
+
+                    dauTrend.Add(new DauDataPointSM
+                    {
+                        Date = trendDay.ToString("yyyy-MM-dd"),
+                        Count = orders.Select(x => x.UserId).Distinct().Count(),
+                        UniqueOrders = orders.Count,
+                        AppOpens = 0, // Would require app analytics integration
+                        UniqueLogins = 0 // Would require login tracking
+                    });
+                }
+
+                response.GrowthMetrics.DailyActiveUsers = new DailyActiveUsersSM
+                {
+                    Today = todayActiveUsers,
+                    Yesterday = yesterdayActiveUsers,
+                    WeekAverage = weekAverageDau,
+                    MonthAverage = monthAverageDau,
+                    ChangePercent = dauChangePercent,
+                    Trend = dauTrend
+                };
+
+                // MAU - Monthly Active Users
+                var thisMonthStart = IstDateHelper.IstDayStartUtc(new DateTime(istToday.Year, istToday.Month, 1));
+                var prevMonthStart = IstDateHelper.IstDayStartUtc(thisMonthStart.AddMonths(-1));
+                var prevMonthEnd = IstDateHelper.IstDayEndUtc(thisMonthStart.AddDays(-1));
+                var quarterStart = IstDateHelper.IstDayStartUtc(thisMonthStart.AddMonths(-3));
+
+                var currentMonthUsers = await _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= thisMonthStart)
+                    .Select(x => x.UserId)
+                    .Distinct()
+                    .CountAsync();
+
+                var previousMonthUsers = await _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= prevMonthStart && x.CreatedAt <= prevMonthEnd)
+                    .Select(x => x.UserId)
+                    .Distinct()
+                    .CountAsync();
+
+                var quarterUsers = await _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= quarterStart)
+                    .Select(x => x.UserId)
+                    .Distinct()
+                    .CountAsync();
+
+                var mauChangePercent = previousMonthUsers > 0
+                    ? Math.Round((double)(currentMonthUsers - previousMonthUsers) / previousMonthUsers * 100, 2)
+                    : 0;
+
+                // MAU trend (last 6 months)
+                var mauTrend = new List<MauDataPointSM>();
+                for (int i = 5; i >= 0; i--)
+                {
+                    var monthStart = IstDateHelper.IstDayStartUtc(new DateTime(istToday.Year, istToday.Month, 1).AddMonths(-i));
+                    var monthEnd = IstDateHelper.IstDayEndUtc(monthStart.AddMonths(1).AddDays(-1));
+
+                    var monthOrders = await _apiDbContext.Order
+                        .Where(x => x.CreatedAt >= monthStart && x.CreatedAt <= monthEnd)
+                        .ToListAsync();
+
+                    var activeUsers = monthOrders.Select(x => x.UserId).Distinct().ToList();
+
+                    mauTrend.Add(new MauDataPointSM
+                    {
+                        Month = monthStart.ToString("MMM yyyy"),
+                        Count = activeUsers.Count,
+                        NewUsers = 0, // Would require user registration tracking
+                        ReturningUsers = activeUsers.Count
+                    });
+                }
+
+                response.GrowthMetrics.MonthlyActiveUsers = new MonthlyActiveUsersSM
+                {
+                    CurrentMonth = currentMonthUsers,
+                    PreviousMonth = previousMonthUsers,
+                    QuarterAverage = quarterUsers / 3,
+                    ChangePercent = mauChangePercent,
+                    Trend = mauTrend
+                };
+
+                // User Growth
+                var totalUsers = await _apiDbContext.User.CountAsync();
+                var newUsersToday = await _apiDbContext.User
+                    .Where(x => x.CreatedAt >= todayStart && x.CreatedAt < todayEnd)
+                    .CountAsync();
+                var newUsersThisWeek = await _apiDbContext.User
+                    .Where(x => x.CreatedAt >= growthWeekStart)
+                    .CountAsync();
+                var newUsersThisMonth = await _apiDbContext.User
+                    .Where(x => x.CreatedAt >= thisMonthStart)
+                    .CountAsync();
+
+                // Daily signups (last 14 days)
+                var dailySignups = new List<GrowthDataPointSM>();
+                for (int i = 13; i >= 0; i--)
+                {
+                    var signupDay = istToday.AddDays(-i);
+                    var signupDayStart = IstDateHelper.IstDayStartUtc(signupDay);
+                    var signupDayEnd = IstDateHelper.IstDayEndUtc(signupDay);
+
+                    var newUsersCount = await _apiDbContext.User
+                        .Where(x => x.CreatedAt >= signupDayStart && x.CreatedAt < signupDayEnd)
+                        .CountAsync();
+
+                    dailySignups.Add(new GrowthDataPointSM
+                    {
+                        Date = signupDay.ToString("yyyy-MM-dd"),
+                        NewUsers = newUsersCount,
+                        ChurnedUsers = 0, // Would require churn tracking
+                        NetGrowth = newUsersCount
+                    });
+                }
+
+                response.GrowthMetrics.UserGrowth = new UserGrowthSM
+                {
+                    TotalUsers = totalUsers,
+                    NewUsersToday = newUsersToday,
+                    NewUsersThisWeek = newUsersThisWeek,
+                    NewUsersThisMonth = newUsersThisMonth,
+                    GrowthRate = totalUsers > 0 ? Math.Round((double)newUsersThisMonth / totalUsers * 100, 2) : 0,
+                    DailySignups = dailySignups
+                };
+            }
+            catch { }
+
+            #endregion
+
+            #region HEATMAP ANALYTICS
+
+            try
+            {
+                // Hourly activity heatmap (based on orders)
+                var last30Days = IstDateHelper.IstDayStartUtc(istToday.AddDays(-30));
+                var hourlyActivity = new List<HourlyActivitySM>();
+
+                var ordersByHour = await _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= last30Days)
+                    .GroupBy(x => x.CreatedAt.Value.Hour)
+                    .Select(g => new
+                    {
+                        Hour = g.Key,
+                        OrderCount = g.Count(),
+                        UserCount = g.Select(x => x.UserId).Distinct().Count()
+                    })
+                    .ToListAsync();
+
+                var maxOrderCount = ordersByHour.Any() ? ordersByHour.Max(x => x.OrderCount) : 1;
+
+                for (int hour = 0; hour < 24; hour++)
+                {
+                    var hourData = ordersByHour.FirstOrDefault(x => x.Hour == hour);
+                    var orderCount = hourData?.OrderCount ?? 0;
+                    var userCount = hourData?.UserCount ?? 0;
+
+                    hourlyActivity.Add(new HourlyActivitySM
+                    {
+                        Hour = hour,
+                        HourLabel = hour == 0 ? "12 AM" : hour < 12 ? $"{hour} AM" : hour == 12 ? "12 PM" : $"{hour - 12} PM",
+                        UserCount = userCount,
+                        OrderCount = orderCount,
+                        SessionCount = orderCount, // Approximated by orders
+                        Intensity = maxOrderCount > 0 ? (double)orderCount / maxOrderCount : 0
+                    });
+                }
+
+                // Day of week activity
+                var dayOfWeekActivity = new List<DayOfWeekActivitySM>();
+                var dayNames = new[] { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" };
+
+                var ordersByDay = await _apiDbContext.Order
+                    .Where(x => x.CreatedAt >= last30Days)
+                    .ToListAsync();
+
+                var groupedByDay = ordersByDay
+                    .GroupBy(x => (int)(x.CreatedAt ?? DateTime.UtcNow).DayOfWeek)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => new
+                        {
+                            OrderCount = g.Count(),
+                            UserCount = g.Select(x => x.UserId).Distinct().Count()
+                        });
+
+                var maxDayCount = groupedByDay.Any() ? groupedByDay.Max(x => x.Value.OrderCount) : 1;
+
+                for (int day = 0; day < 7; day++)
+                {
+                    var dayData = groupedByDay.ContainsKey(day) ? groupedByDay[day] : null;
+                    var orderCount = dayData?.OrderCount ?? 0;
+                    var userCount = dayData?.UserCount ?? 0;
+
+                    dayOfWeekActivity.Add(new DayOfWeekActivitySM
+                    {
+                        DayOfWeek = day,
+                        DayName = dayNames[day],
+                        UserCount = userCount,
+                        OrderCount = orderCount,
+                        SessionCount = orderCount,
+                        Intensity = maxDayCount > 0 ? (double)orderCount / maxDayCount : 0
+                    });
+                }
+
+                // Geographic activity (by city)
+                var geographicActivity = await _apiDbContext.UserAddress
+                    .Where(x => !string.IsNullOrEmpty(x.City))
+                    .GroupBy(x => new { x.City, x.State })
+                    .Select(g => new GeographicActivitySM
+                    {
+                        City = g.Key.City,
+                        State = g.Key.State ?? "Unknown",
+                        UserCount = g.Select(x => x.UserId).Distinct().Count(),
+                        OrderCount = 0, // Would require address-order linkage
+                        Revenue = 0,
+                        Latitude = 0, // Would require geocoding
+                        Longitude = 0,
+                        Intensity = 0
+                    })
+                    .OrderByDescending(x => x.UserCount)
+                    .Take(20)
+                    .ToListAsync();
+
+                // Page views (placeholder - would require analytics tracking)
+                var pageViews = new List<PageViewHeatmapSM>
+                {
+                    new() { PagePath = "/", PageName = "Home", ViewCount = 0, UniqueVisitors = 0, AvgTimeOnPage = 0, BounceRate = 0, Intensity = 0 },
+                    new() { PagePath = "/products", PageName = "Products", ViewCount = 0, UniqueVisitors = 0, AvgTimeOnPage = 0, BounceRate = 0, Intensity = 0 },
+                    new() { PagePath = "/cart", PageName = "Cart", ViewCount = 0, UniqueVisitors = 0, AvgTimeOnPage = 0, BounceRate = 0, Intensity = 0 },
+                    new() { PagePath = "/checkout", PageName = "Checkout", ViewCount = 0, UniqueVisitors = 0, AvgTimeOnPage = 0, BounceRate = 0, Intensity = 0 },
+                    new() { PagePath = "/orders", PageName = "Orders", ViewCount = 0, UniqueVisitors = 0, AvgTimeOnPage = 0, BounceRate = 0, Intensity = 0 }
+                };
+
+                // Find peak values
+                var peakHour = hourlyActivity.OrderByDescending(x => x.OrderCount).FirstOrDefault();
+                var peakDay = dayOfWeekActivity.OrderByDescending(x => x.OrderCount).FirstOrDefault();
+                var topCity = geographicActivity.FirstOrDefault();
+
+                response.Heatmap = new HeatmapSM
+                {
+                    HourlyActivity = hourlyActivity,
+                    DayOfWeekActivity = dayOfWeekActivity,
+                    GeographicActivity = geographicActivity,
+                    PageViews = pageViews,
+                    Summary = new HeatmapSummarySM
+                    {
+                        PeakHour = peakHour?.Hour ?? 0,
+                        PeakHourLabel = peakHour?.HourLabel ?? "N/A",
+                        PeakDayOfWeek = peakDay?.DayOfWeek ?? 0,
+                        PeakDayLabel = peakDay?.DayName ?? "N/A",
+                        TopCity = topCity?.City ?? "N/A",
+                        TopPage = "Home", // Default
+                        AverageSessionDuration = 0, // Would require session tracking
+                        TotalSessions = ordersByHour.Sum(x => x.OrderCount)
+                    }
+                };
             }
             catch { }
 
@@ -532,7 +1075,8 @@ namespace Siffrum.Ecom.BAL.LoginUsers
                     OrderStatus = o.OrderStatus.ToString(),
                     PaymentStatus = o.PaymentStatus.ToString(),
                     PaymentMode = o.PaymentMode.ToString(),
-                    CreatedAt = o.CreatedAt
+                    CreatedAt = o.CreatedAt,
+                    PlatformType = o.PlatformType.ToString()
                 })
                 .ToListAsync();
         }

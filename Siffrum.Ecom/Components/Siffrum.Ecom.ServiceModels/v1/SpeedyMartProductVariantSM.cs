@@ -8,6 +8,8 @@
 
         public List<VariantInfoSM> AllVariants { get; set; }
 
+        public List<ProductAttributeDimensionSM> AttributeDimensions { get; set; } = new();
+
         public string? Tags { get; set; }
     }
 }

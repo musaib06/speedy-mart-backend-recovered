@@ -178,7 +178,7 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Marketing
                 return NotFound(ModelConverter.FormNewErrorResponse(DomainConstantsRoot.DisplayMessagesRoot.Display_Id_NotFound));
 
             var response = await _promocodeProcess.ValidatePromoCodeAsync(
-                innerReq.Code, innerReq.CartSubtotal, userId, innerReq.PlatformType);
+                innerReq.Code, innerReq.CartSubtotal, userId, innerReq.PlatformType, innerReq.DeliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 

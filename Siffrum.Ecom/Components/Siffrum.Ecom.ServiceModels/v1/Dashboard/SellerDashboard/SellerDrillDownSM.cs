@@ -26,5 +26,8 @@ namespace Siffrum.Ecom.ServiceModels.v1.Dashboard.SellerDashboard
         public double Stock { get; set; }
         public decimal Price { get; set; }
         public string? CategoryName { get; set; }
+        public long? SellerId { get; set; }
+        public string? SellerName { get; set; }
+        public string? PlatformType { get; set; }
     }
 }

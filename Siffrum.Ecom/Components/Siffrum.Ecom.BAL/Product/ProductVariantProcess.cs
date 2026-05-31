@@ -30,12 +30,15 @@ namespace Siffrum.Ecom.BAL.Product
         private readonly ComboProcess _comboProcess;
         private readonly ProductToppingProcess _productToppingProcess;
         private readonly IDistributedCache _cache;
+        private readonly InventoryTransactionProcess _inventoryTx;
+        private readonly ProductAttributeDimensionProcess _attrDimensionProcess;
 
 
         public ProductVariantProcess(IMapper mapper, ApiDbContext apiDbContext, ILoginUserDetail loginUserDetail, ProductImagesProcess productImages, ProductNutritionProcess productNutrition,
             ProductRatingProcess productRating, ProductUnitProcess productUnit, ProductFaqProcess productFaq, ImageProcess imageProcess,ComboProcess comboProcess,
             ProductSpecificationProcess productSpecificationProcess, ProductSpecificationFilterProcess productSpecificationFilterProcess,
-            ProductToppingProcess productToppingProcess, IDistributedCache cache)
+            ProductToppingProcess productToppingProcess, IDistributedCache cache, InventoryTransactionProcess inventoryTx,
+            ProductAttributeDimensionProcess attrDimensionProcess)
             : base(mapper, apiDbContext)
         {
             _loginUserDetail = loginUserDetail;
@@ -50,6 +53,8 @@ namespace Siffrum.Ecom.BAL.Product
             _comboProcess = comboProcess;
             _productToppingProcess = productToppingProcess;
             _cache = cache;
+            _inventoryTx = inventoryTx;
+            _attrDimensionProcess = attrDimensionProcess;
         }
 
         #region OData
@@ -583,7 +588,7 @@ namespace Siffrum.Ecom.BAL.Product
 
         #region Speedy Mart
 
-        public async Task<List<UserSpeedyMartProductSM>> GetSpeedyMartProductsByCategoryId(long categoryId, int skip, int top)
+        public async Task<List<UserSpeedyMartProductSM>> GetSpeedyMartProductsByCategoryId(long categoryId, int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
             var category = await _apiDbContext.Category.FindAsync(categoryId);
 
@@ -602,13 +607,23 @@ namespace Siffrum.Ecom.BAL.Product
                     "Category details are missing");
             }
 
-            // STEP 1: Fetch lightweight projections, then dedup by product name in memory
-            var candidates = await _apiDbContext.ProductVariant
+            // STEP 1: Build query with optional delivery speed filter
+            var query = _apiDbContext.ProductVariant
                 .AsNoTracking()
                 .Where(x => x.PlatformType == PlatformTypeDM.SpeedyMart && x.Status == ProductStatusDM.Active &&
-                            x.Product.CategoryId == categoryId)
+                            x.Product.CategoryId == categoryId);
+
+            // Apply delivery speed filter if specified
+            if (deliverySpeedType.HasValue && deliverySpeedType.Value != DeliverySpeedTypeSM.Both)
+            {
+                var speedTypeValue = (int)deliverySpeedType.Value;
+                query = query.Where(x => x.DeliverySpeedType == speedTypeValue || x.DeliverySpeedType == 3);
+            }
+
+            var candidates = await query
                 .Select(x => new { x.Id, ProductName = x.Product.Name, x.ViewCount })
                 .ToListAsync();
+
             var variantIds = candidates
                 .GroupBy(x => x.ProductName)
                 .Select(g => g.OrderByDescending(x => x.ViewCount).First().Id)
@@ -620,11 +635,10 @@ namespace Siffrum.Ecom.BAL.Product
                 return new List<UserSpeedyMartProductSM>();
 
             return await GetSpeedyMartProductsByBanner(variantIds);
-            
         }
 
 
-        public async Task<IntResponseRoot> GetSpeedyMartProductsByCategoryIdCount(long categoryId)
+        public async Task<IntResponseRoot> GetSpeedyMartProductsByCategoryIdCount(long categoryId, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
             var category = await _apiDbContext.Category.FindAsync(categoryId);
 
@@ -643,11 +657,21 @@ namespace Siffrum.Ecom.BAL.Product
                     "Category details are missing");
             }
 
-            // Count distinct products that have active SpeedyMart variants
-            var names = await _apiDbContext.ProductVariant
+            // Build query with optional delivery speed filter
+            var query = _apiDbContext.ProductVariant
                 .AsNoTracking()
                 .Where(x => x.PlatformType == PlatformTypeDM.SpeedyMart && x.Status == ProductStatusDM.Active &&
-                            x.Product.CategoryId == categoryId)
+                            x.Product.CategoryId == categoryId);
+
+            // Apply delivery speed filter if specified
+            if (deliverySpeedType.HasValue && deliverySpeedType.Value != DeliverySpeedTypeSM.Both)
+            {
+                var speedTypeValue = (int)deliverySpeedType.Value;
+                query = query.Where(x => x.DeliverySpeedType == speedTypeValue || x.DeliverySpeedType == 3);
+            }
+
+            // Count distinct products that have active SpeedyMart variants
+            var names = await query
                 .Select(x => x.Product.Name)
                 .ToListAsync();
             var count = names.Distinct().Count();
@@ -734,10 +758,26 @@ namespace Siffrum.Ecom.BAL.Product
                 tags.TryGetValue(product.Id, out var tagList);
                 bool isFreshArrival = product.CreatedAt >= IstDateHelper.IstDaysAgoUtc(3);
                 bool isBestSeller = (orderData?.TotalOrders ?? 0) > 10;
+
+                // Build tags based on DeliverySpeedType (stored as int: 1=Normal, 2=Express, 3=Both)
+                var tagsList = new List<string>();
+                var deliverySpeed = (DeliverySpeedTypeDM)product.DeliverySpeedType;
+                if (deliverySpeed == DeliverySpeedTypeDM.Express)
+                    tagsList.Add("express");
+                else if (deliverySpeed == DeliverySpeedTypeDM.Normal)
+                    tagsList.Add("normal");
+                else if (deliverySpeed == DeliverySpeedTypeDM.Both)
+                {
+                    tagsList.Add("express");
+                    tagsList.Add("normal");
+                }
+
                 return new UserSpeedyMartProductSM
                 {
                     Id = product.Id,
+                    ProductId = product.Product?.Id ?? 0,
                     Name = product.Product?.Name ?? product.Name,
+                    UnitLabel = product.Name,
                     Price = product.Price,
                     Description = product.Description,
                     DiscountedPrice = product.DiscountedPrice,
@@ -753,6 +793,8 @@ namespace Siffrum.Ecom.BAL.Product
                     IsFreshArrival = isFreshArrival,
                     IsBestSeller = isBestSeller,
                     CategoryId = product?.Product?.CategoryId,
+                    DeliverySpeedType = (DeliverySpeedTypeSM)product.DeliverySpeedType,
+                    Tags = tagsList
                 };
             });
 
@@ -881,7 +923,8 @@ namespace Siffrum.Ecom.BAL.Product
                             DiscountedPrice = v.DiscountedPrice,
                             Stock = v.Stock,
                             ImageBase64 = vImg.Base64,
-                            NetworkImage = vImg.NetworkUrl
+                            NetworkImage = vImg.NetworkUrl,
+                            VariantAttributes = v.VariantAttributes
                         });
                     }
                 }
@@ -1131,7 +1174,7 @@ namespace Siffrum.Ecom.BAL.Product
             return new IntResponseRoot(names.Distinct().Count(), "Total Products");
         }
 
-        public async Task<List<UserSpeedyMartProductSM>> GetSpeedyMartProductsBySearch(string searchString, int skip, int top)
+        public async Task<List<UserSpeedyMartProductSM>> GetSpeedyMartProductsBySearch(string searchString, int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
             if (string.IsNullOrWhiteSpace(searchString))
                 return new List<UserSpeedyMartProductSM>();
@@ -1143,11 +1186,17 @@ namespace Siffrum.Ecom.BAL.Product
             IQueryable<ProductVariantDM> query = _apiDbContext.ProductVariant.Where(x => x.PlatformType == PlatformTypeDM.SpeedyMart && x.Status == ProductStatusDM.Active)
                 .AsNoTracking();
 
+            if (deliverySpeedType.HasValue)
+            {
+                var dst = (int)deliverySpeedType.Value;
+                query = query.Where(x => x.DeliverySpeedType == dst || x.DeliverySpeedType == 3);
+            }
 
-            // Multi-word search using LIKE (Better performance)
+            // Multi-word search on variant name OR product name
             foreach (var word in words)
             {
-                query = query.Where(x => x.Name.ToLower().Contains(word.ToLower()));
+                var w = word.ToLower();
+                query = query.Where(x => x.Name.ToLower().Contains(w) || (x.Product != null && x.Product.Name.ToLower().Contains(w)));
             }
 
             var candidates = await query
@@ -1162,7 +1211,7 @@ namespace Siffrum.Ecom.BAL.Product
             return await GetSpeedyMartProductsByBanner(variantIds);            
         }
 
-        public async Task<IntResponseRoot> GetSpeedyMartProductsBySearchCount(string searchString)
+        public async Task<IntResponseRoot> GetSpeedyMartProductsBySearchCount(string searchString, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
             if (string.IsNullOrWhiteSpace(searchString))
                 return new IntResponseRoot(0, "Total Products");
@@ -1174,16 +1223,107 @@ namespace Siffrum.Ecom.BAL.Product
             IQueryable<ProductVariantDM> query = _apiDbContext.ProductVariant.Where(x => x.PlatformType == PlatformTypeDM.SpeedyMart && x.Status == ProductStatusDM.Active)
                 .AsNoTracking();
 
+            if (deliverySpeedType.HasValue)
+            {
+                var dst = (int)deliverySpeedType.Value;
+                query = query.Where(x => x.DeliverySpeedType == dst || x.DeliverySpeedType == 3);
+            }
 
-            // Multi-word search using LIKE (Better performance)
+            // Multi-word search on variant name OR product name
             foreach (var word in words)
             {
-                query = query.Where(x => x.Name.ToLower().Contains(word.ToLower()));
+                var w = word.ToLower();
+                query = query.Where(x => x.Name.ToLower().Contains(w) || (x.Product != null && x.Product.Name.ToLower().Contains(w)));
             }
 
             var names = await query
                 .Select(x => x.Product.Name)
                 .ToListAsync();
+            return new IntResponseRoot(names.Distinct().Count(), "Total Products");
+        }
+
+        /// <summary>
+        /// Search SpeedyMart products with delivery speed type filter (Normal=1, Express=2, Both=3)
+        /// </summary>
+        public async Task<List<UserSpeedyMartProductSM>> GetSpeedyMartProductsBySearchWithDeliveryFilter(
+            string searchString, int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
+        {
+            if (string.IsNullOrWhiteSpace(searchString))
+                return new List<UserSpeedyMartProductSM>();
+
+            var words = searchString
+                .Trim()
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            IQueryable<ProductVariantDM> query = _apiDbContext.ProductVariant
+                .Where(x => x.PlatformType == PlatformTypeDM.SpeedyMart && x.Status == ProductStatusDM.Active)
+                .AsNoTracking();
+
+            // Apply delivery speed filter if specified
+            if (deliverySpeedType.HasValue && deliverySpeedType.Value != DeliverySpeedTypeSM.Both)
+            {
+                var speedTypeValue = (int)deliverySpeedType.Value;
+                // Match products where DeliverySpeedType matches OR is Both (3)
+                query = query.Where(x => x.DeliverySpeedType == speedTypeValue || x.DeliverySpeedType == 3);
+            }
+
+            // Multi-word search on variant name OR product name
+            foreach (var word in words)
+            {
+                var w = word.ToLower();
+                query = query.Where(x => x.Name.ToLower().Contains(w) || (x.Product != null && x.Product.Name.ToLower().Contains(w)));
+            }
+
+            var candidates = await query
+                .Select(x => new { x.Id, ProductName = x.Product.Name, x.ViewCount })
+                .ToListAsync();
+
+            var variantIds = candidates
+                .GroupBy(x => x.ProductName)
+                .Select(g => g.OrderByDescending(x => x.ViewCount).First().Id)
+                .ToList();
+
+            if (!variantIds.Any())
+                return new List<UserSpeedyMartProductSM>();
+
+            return await GetSpeedyMartProductsByBanner(variantIds);
+        }
+
+        /// <summary>
+        /// Get count of SpeedyMart products by search with delivery speed type filter
+        /// </summary>
+        public async Task<IntResponseRoot> GetSpeedyMartProductsBySearchWithDeliveryFilterCount(
+            string searchString, DeliverySpeedTypeSM? deliverySpeedType = null)
+        {
+            if (string.IsNullOrWhiteSpace(searchString))
+                return new IntResponseRoot(0, "Total Products");
+
+            var words = searchString
+                .Trim()
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            IQueryable<ProductVariantDM> query = _apiDbContext.ProductVariant
+                .Where(x => x.PlatformType == PlatformTypeDM.SpeedyMart && x.Status == ProductStatusDM.Active)
+                .AsNoTracking();
+
+            // Apply delivery speed filter if specified
+            if (deliverySpeedType.HasValue && deliverySpeedType.Value != DeliverySpeedTypeSM.Both)
+            {
+                var speedTypeValue = (int)deliverySpeedType.Value;
+                query = query.Where(x => x.DeliverySpeedType == speedTypeValue || x.DeliverySpeedType == 3);
+            }
+
+            // Multi-word search on variant name OR product name
+            foreach (var word in words)
+            {
+                var w = word.ToLower();
+                query = query.Where(x => x.Name.ToLower().Contains(w) || (x.Product != null && x.Product.Name.ToLower().Contains(w)));
+            }
+
+            var names = await query
+                .Select(x => x.Product.Name)
+                .ToListAsync();
+
             return new IntResponseRoot(names.Distinct().Count(), "Total Products");
         }
 
@@ -1429,11 +1569,19 @@ namespace Siffrum.Ecom.BAL.Product
 
         #region Speedy Mart
 
-        public async Task<List<UserSpeedyMartProductSM>> GetSpeedyMartMostOrderedProducts(int skip, int top)
+        public async Task<List<UserSpeedyMartProductSM>> GetSpeedyMartMostOrderedProducts(int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
             // Group by base product to avoid duplicates when assigned to multiple sellers
-            var orderCandidates = await _apiDbContext.OrderItem
-                .Where(o => o.ProductVariant.PlatformType == PlatformTypeDM.SpeedyMart)
+            var query = _apiDbContext.OrderItem
+                .Where(o => o.ProductVariant.PlatformType == PlatformTypeDM.SpeedyMart);
+
+            if (deliverySpeedType.HasValue)
+            {
+                var dst = (int)deliverySpeedType.Value;
+                query = query.Where(o => o.ProductVariant.DeliverySpeedType == dst || o.ProductVariant.DeliverySpeedType == 3);
+            }
+
+            var orderCandidates = await query
                 .Select(o => new { o.ProductVariantId, ProductName = o.ProductVariant.Product.Name, o.ProductVariant.ViewCount })
                 .ToListAsync();
             var variantIds = orderCandidates
@@ -1456,24 +1604,40 @@ namespace Siffrum.Ecom.BAL.Product
             return products;
         }
 
-        public async Task<IntResponseRoot> GetSpeedyMartMostOrderedProductsCount()
+        public async Task<IntResponseRoot> GetSpeedyMartMostOrderedProductsCount(DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var names = await _apiDbContext.OrderItem
-                .Where(o => o.ProductVariant.PlatformType == PlatformTypeDM.SpeedyMart)
+            var query = _apiDbContext.OrderItem
+                .Where(o => o.ProductVariant.PlatformType == PlatformTypeDM.SpeedyMart);
+
+            if (deliverySpeedType.HasValue)
+            {
+                var dst = (int)deliverySpeedType.Value;
+                query = query.Where(o => o.ProductVariant.DeliverySpeedType == dst || o.ProductVariant.DeliverySpeedType == 3);
+            }
+
+            var names = await query
                 .Select(o => o.ProductVariant.Product.Name)
                 .ToListAsync();
             return new IntResponseRoot(names.Distinct().Count(), "Total Products");
         }
 
-        public async Task<List<UserSpeedyMartProductSM>> GetSpeedyMartLatestProducts(int skip, int top)
+        public async Task<List<UserSpeedyMartProductSM>> GetSpeedyMartLatestProducts(int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
             var threeDaysAgo = IstDateHelper.IstDaysAgoUtc(3);
 
-            var candidates = await _apiDbContext.ProductVariant
+            var query = _apiDbContext.ProductVariant
                 .Where(p =>
                     p.PlatformType == PlatformTypeDM.SpeedyMart &&
                     p.Status == ProductStatusDM.Active &&
-                    p.CreatedAt >= threeDaysAgo)
+                    p.CreatedAt >= threeDaysAgo);
+
+            if (deliverySpeedType.HasValue)
+            {
+                var dst = (int)deliverySpeedType.Value;
+                query = query.Where(p => p.DeliverySpeedType == dst || p.DeliverySpeedType == 3);
+            }
+
+            var candidates = await query
                 .Select(p => new { p.Id, ProductName = p.Product.Name, p.Price, p.DiscountedPrice, p.CreatedAt })
                 .ToListAsync();
             var variantIds = candidates
@@ -1496,15 +1660,23 @@ namespace Siffrum.Ecom.BAL.Product
             return products;
         }
 
-        public async Task<IntResponseRoot> GetSpeedyMartLatestProductsCount()
+        public async Task<IntResponseRoot> GetSpeedyMartLatestProductsCount(DeliverySpeedTypeSM? deliverySpeedType = null)
         {
             var threeDaysAgo = IstDateHelper.IstDaysAgoUtc(3);
 
-            var names = await _apiDbContext.ProductVariant
+            var query = _apiDbContext.ProductVariant
                 .Where(p =>
                     p.PlatformType == PlatformTypeDM.SpeedyMart &&
                     p.Status == ProductStatusDM.Active &&
-                    p.CreatedAt >= threeDaysAgo)
+                    p.CreatedAt >= threeDaysAgo);
+
+            if (deliverySpeedType.HasValue)
+            {
+                var dst = (int)deliverySpeedType.Value;
+                query = query.Where(p => p.DeliverySpeedType == dst || p.DeliverySpeedType == 3);
+            }
+
+            var names = await query
                 .Select(p => p.Product.Name)
                 .ToListAsync();
             var count = names.Distinct().Count();
@@ -1661,6 +1833,7 @@ namespace Siffrum.Ecom.BAL.Product
             additionalInfo.Toppings = await _productToppingProcess.GetByProductId(dm.ProductId);
             response.ProductAdditionalInfo = additionalInfo;
             response.AllVariants = await GetAllVariantsForProduct(dm.ProductId);
+            response.AttributeDimensions = await _attrDimensionProcess.GetByProductAsync(dm.ProductId);
             return response;
         }
 
@@ -1693,6 +1866,7 @@ namespace Siffrum.Ecom.BAL.Product
                     UnitName = uName,
                     ImageBase64 = vImg.Base64,
                     NetworkImage = vImg.NetworkUrl,
+                    VariantAttributes = v.VariantAttributes,
                 };
             });
             return (await Task.WhenAll(tasks)).ToList();
@@ -2039,7 +2213,20 @@ namespace Siffrum.Ecom.BAL.Product
                 Stock = globalVariant.Stock,
                 SKU = GenerateSKU(globalVariant.SKU, objSM.SellerId),
                 ProductId = sellerProduct.Id,
-                ViewCount = 0
+                ViewCount = 0,
+                // SpeedyMart-specific fields
+                DeliverySpeedType = globalVariant.DeliverySpeedType,
+                SellByMode = globalVariant.SellByMode,
+                MinOrderQty = globalVariant.MinOrderQty,
+                MaxOrderQty = globalVariant.MaxOrderQty,
+                OrderStepQty = globalVariant.OrderStepQty,
+                ShelfLifeDays = globalVariant.ShelfLifeDays,
+                BestBeforeLabel = globalVariant.BestBeforeLabel,
+                IsOrganic = globalVariant.IsOrganic,
+                RequiresColdChain = globalVariant.RequiresColdChain,
+                VariantAttributes = globalVariant.VariantAttributes,
+                VariantImageUrl = globalVariant.VariantImageUrl,
+                CompareAtPrice = globalVariant.CompareAtPrice
             };
 
             await _apiDbContext.ProductVariant.AddAsync(newVariant);
@@ -2158,13 +2345,17 @@ namespace Siffrum.Ecom.BAL.Product
             if (dm == null)
                 throw new SiffrumException(ApiErrorTypeSM.InvalidInputData_NoLog, "Product variant not found");
 
+            var before = dm.Stock;
             dm.Stock = stock;
             dm.IsUnlimitedStock = false;
             dm.UpdatedAt = DateTime.UtcNow;
             dm.UpdatedBy = _loginUserDetail.LoginId;
 
             if (await _apiDbContext.SaveChangesAsync() > 0)
+            {
+                await _inventoryTx.LogAsync(variantId, sellerId, "StockSet", before, stock, stock - (before ?? 0), note: "Manual stock update");
                 return await GetProductVariantById(dm.Id);
+            }
 
             throw new SiffrumException(ApiErrorTypeSM.Fatal_Log, "Failed to update stock");
         }

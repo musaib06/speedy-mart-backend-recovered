@@ -103,5 +103,20 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
         }
 
         #endregion User Timing Query
+
+        #region Diagnostics
+
+        [HttpGet("diagnostics/{productId}")]
+        [Authorize(
+            AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
+            Roles = "Seller")]
+        public async Task<ActionResult<ApiResponse<ProductTimingDiagnosticsSM>>> DiagnoseProductTiming(
+            long productId, string? timezone = "Asia/Kolkata")
+        {
+            var result = await _process.DiagnoseProductTiming(productId, timezone ?? "Asia/Kolkata");
+            return ModelConverter.FormNewSuccessResponse(result);
+        }
+
+        #endregion Diagnostics
     }
 }

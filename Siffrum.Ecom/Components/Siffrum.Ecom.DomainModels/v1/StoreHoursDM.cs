@@ -23,5 +23,8 @@ namespace Siffrum.Ecom.DomainModels.v1
 
         [Column("is_closed")]
         public bool IsClosed { get; set; } = false;
+
+        [Column("platform_type")]
+        public short PlatformType { get; set; } = 0; // 0=None/Legacy, 1=HotBox, 2=SpeedyMart
     }
 }

@@ -40,19 +40,32 @@ namespace Siffrum.Ecom.BAL.Product
 
         #region Get All and Count
 
-        public async Task<List<TagSM>> GetAllTags(int skip, int top)
+        public async Task<List<TagSM>> GetAllTags(int skip, int top, PlatformTypeSM? platform = null)
         {
-            var dms = await _apiDbContext.Tag.AsNoTracking()
+            var query = _apiDbContext.Tag.AsNoTracking();
+            
+            if (platform.HasValue)
+            {
+                query = query.Where(t => t.Platform == (PlatformTypeDM)platform.Value);
+            }
+            
+            var dms = await query
                 .Skip(skip).Take(top)
                 .ToListAsync();
             var sms = _mapper.Map<List<TagSM>>(dms);
             return sms;
         }
 
-        public async Task<IntResponseRoot> GetAllTagsCount()
+        public async Task<IntResponseRoot> GetAllTagsCount(PlatformTypeSM? platform = null)
         {
-            var count = await _apiDbContext.Tag.AsNoTracking()
-                .CountAsync();
+            var query = _apiDbContext.Tag.AsNoTracking();
+            
+            if (platform.HasValue)
+            {
+                query = query.Where(t => t.Platform == (PlatformTypeDM)platform.Value);
+            }
+            
+            var count = await query.CountAsync();
             return new IntResponseRoot(count, "Total Tags");
         }
 

@@ -91,6 +91,9 @@ namespace Siffrum.Ecom.DomainModels.v1
         [Column("low_cart_fee_charge")]
         public decimal LowCartFeeCharge { get; set; } = 0;
 
+        [Column("surge_charge", TypeName = "decimal(18,2)")]
+        public decimal SurgeCharge { get; set; } = 0;
+
         [Column("tax_amount", TypeName = "decimal(18,2)")]
         public decimal TaxAmount { get; set; } = 0;
 
@@ -102,6 +105,18 @@ namespace Siffrum.Ecom.DomainModels.v1
 
         [Column("seller_accepted_at")]
         public DateTime? SellerAcceptedAt { get; set; }
+
+        [Column("platform_type")]
+        public PlatformTypeDM PlatformType { get; set; } = PlatformTypeDM.HotBox;
+
+        [Column("delivery_speed_type")]
+        public int DeliverySpeedType { get; set; } = 0; // 0=N/A (HotBox), 1=Normal, 2=Express
+
+        [Column("discount_amount", TypeName = "decimal(18,2)")]
+        public decimal DiscountAmount { get; set; } = 0;
+
+        [Column("promo_code_id")]
+        public long? PromoCodeId { get; set; }
 
         public ICollection<OrderItemDM> OrderItems { get; set; } = new List<OrderItemDM>();
         public ICollection<InvoiceDM> Invoices { get; set; } = new List<InvoiceDM>();

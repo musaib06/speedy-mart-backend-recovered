@@ -122,6 +122,9 @@ namespace Siffrum.Ecom.BAL.Marketing
             dm.IsActive = objSM.IsActive;
             dm.IsFirstOrderOnly = objSM.IsFirstOrderOnly;
             dm.PlatformType = (PlatformTypeDM)objSM.PlatformType;
+            dm.ApplicableDeliverySpeed = objSM.ApplicableDeliverySpeed.HasValue
+                ? (DeliverySpeedTypeDM)objSM.ApplicableDeliverySpeed.Value
+                : null;
             dm.UpdatedAt = DateTime.UtcNow;
             dm.UpdatedBy = _loginUserDetail.LoginId;
 
@@ -176,7 +179,8 @@ namespace Siffrum.Ecom.BAL.Marketing
             string code,
             decimal cartSubtotal,
             long userId,
-            PlatformTypeSM? platform = null)
+            PlatformTypeSM? platform = null,
+            DeliverySpeedTypeSM? deliverySpeed = null)
         {
             if (string.IsNullOrWhiteSpace(code))
                 throw new SiffrumException(ApiErrorTypeSM.InvalidInputData_NoLog, "Promo code is required");
@@ -194,6 +198,11 @@ namespace Siffrum.Ecom.BAL.Marketing
             if (promo.PlatformType.HasValue && platform.HasValue
                 && promo.PlatformType != (PlatformTypeDM)platform.Value)
                 throw new SiffrumException(ApiErrorTypeSM.InvalidInputData_NoLog, "This promo code is not valid for this platform");
+
+            if (promo.ApplicableDeliverySpeed.HasValue && deliverySpeed.HasValue
+                && promo.ApplicableDeliverySpeed != (DeliverySpeedTypeDM)deliverySpeed.Value
+                && promo.ApplicableDeliverySpeed != DeliverySpeedTypeDM.Both)
+                throw new SiffrumException(ApiErrorTypeSM.InvalidInputData_NoLog, "This promo code is not valid for this delivery type");
 
             if (promo.MinimumCartAmount.HasValue && cartSubtotal < promo.MinimumCartAmount.Value)
                 throw new SiffrumException(ApiErrorTypeSM.InvalidInputData_NoLog,

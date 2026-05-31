@@ -89,6 +89,34 @@ namespace Siffrum.Ecom.DAL.Context
         public DbSet<ProductTimingDM> ProductTimings { get; set; }
         public DbSet<InAppNotificationDM> InAppNotifications { get; set; }
 
+        // SpeedyMart spec template per category
+        public DbSet<CategorySpecTemplateDM> CategorySpecTemplates { get; set; }
+
+        // SpeedyMart attribute dimension templates per category
+        public DbSet<CategoryAttrDimensionDM> CategoryAttrDimensions { get; set; }
+
+        // Inventory transaction log
+        public DbSet<InventoryTransactionDM> InventoryTransactions { get; set; }
+
+        // Per-product attribute dimensions
+        public DbSet<ProductAttributeDimensionDM> ProductAttributeDimensions { get; set; }
+
+        // Low stock alerts
+        public DbSet<LowStockAlertDM> LowStockAlerts { get; set; }
+
+        // SpeedyMart offers
+        public DbSet<SpeedyMartOfferDM> SpeedyMartOffers { get; set; }
+
+        // Product complaints
+        public DbSet<ProductComplaintDM> ProductComplaints { get; set; }
+        public DbSet<ProductComplaintCommentDM> ProductComplaintComments { get; set; }
+
+        // Wishlist
+        public DbSet<WishlistItemDM> WishlistItems { get; set; }
+
+        // Activity Logs
+        public DbSet<ActivityLogDM> ActivityLogs { get; set; }
+
         #endregion Ecom Tables
 
         #region On Model Creating
@@ -114,7 +142,7 @@ namespace Siffrum.Ecom.DAL.Context
                 .HasIndex(x => new { x.CategoryId, x.SellerId })
                 .IsUnique();
             modelBuilder.Entity<StoreHoursDM>()
-                .HasIndex(x => new { x.SellerId, x.DayOfWeek })
+                .HasIndex(x => new { x.SellerId, x.DayOfWeek, x.PlatformType })
                 .IsUnique();
             DatabaseSeeder<ApiDbContext> seeder = new DatabaseSeeder<ApiDbContext>();
             seeder.SetupDatabaseWithSeedData(modelBuilder);

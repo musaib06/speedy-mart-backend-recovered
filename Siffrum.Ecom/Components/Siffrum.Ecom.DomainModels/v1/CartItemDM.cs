@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations.Schema;
+﻿using Siffrum.Ecom.DomainModels.Enums;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Siffrum.Ecom.DomainModels.v1
 {
@@ -38,5 +39,10 @@ namespace Siffrum.Ecom.DomainModels.v1
 
         [Column("addons_total")]
         public decimal AddonsTotal { get; set; }
+
+        // SpeedyMart only: which cart this item belongs to (Express=2, Normal=1, Both=3 means user chose Express)
+        // NULL for HotBox items
+        [Column("delivery_speed_type")]
+        public DeliverySpeedTypeDM? DeliverySpeedType { get; set; }
     }
 }

@@ -79,6 +79,19 @@ namespace Siffrum.Ecom.BAL.LoginUsers
 
             var pendingPayout = totalDelivered - (totalDelivered * commRate / 100);
 
+            // Calculate total orders and total revenue (all time)
+            var totalOrders = await _apiDbContext.Order
+                .Where(x =>
+                    x.SellerId == sellerId &&
+                    x.OrderStatus != OrderStatusDM.AwaitingPayment)
+                .CountAsync();
+
+            var totalRevenue = await _apiDbContext.Order
+                .Where(x =>
+                    x.SellerId == sellerId &&
+                    x.OrderStatus == OrderStatusDM.Delivered)
+                .SumAsync(x => (decimal?)x.Amount) ?? 0;
+
             return new SellerKpiSM
             {
                 TodayRevenue = todayRevenue,
@@ -86,7 +99,9 @@ namespace Siffrum.Ecom.BAL.LoginUsers
                 PendingOrders = pendingOrders,
                 LowStockCount = lowStock,
                 PendingPayoutAmount = pendingPayout,
-                StoreRating = rating
+                StoreRating = rating,
+                TotalOrders = totalOrders,
+                TotalRevenue = totalRevenue
             };
         }
 
@@ -404,6 +419,234 @@ namespace Siffrum.Ecom.BAL.LoginUsers
                 })
                 .ToListAsync();
         }
+
+        public async Task<List<LowStockVariantSM>> GetLowStockItemsAdminAsync(
+            long? sellerId, string platform, int threshold = 10)
+        {
+            var query = _apiDbContext.ProductVariant
+                .AsNoTracking()
+                .Include(v => v.Product)
+                .Where(v => v.Stock.HasValue && v.Stock <= threshold && v.Stock > 0 && !v.IsUnlimitedStock);
+
+            if (sellerId.HasValue && sellerId.Value > 0)
+                query = query.Where(v => v.Product.SellerId == sellerId.Value);
+
+            if (Enum.TryParse<PlatformTypeDM>(platform, true, out var pt) && pt != PlatformTypeDM.None)
+                query = query.Where(v => v.PlatformType == pt);
+
+            var rows = await query
+                .OrderBy(v => v.Stock)
+                .Select(v => new
+                {
+                    v.Id, v.Name, v.Stock, v.Price, v.Image, v.PlatformType,
+                    ProductName = v.Product.Name,
+                    CategoryName = v.Product.Category != null ? v.Product.Category.Name : null,
+                    SellerId = v.Product.SellerId
+                })
+                .ToListAsync();
+
+            var sellerIds = rows.Select(r => r.SellerId).Distinct().ToList();
+            var sellerNames = await _apiDbContext.Seller
+                .AsNoTracking()
+                .Where(s => sellerIds.Contains(s.Id))
+                .ToDictionaryAsync(s => s.Id, s => s.StoreName ?? s.Name ?? "");
+
+            return rows.Select(v => new LowStockVariantSM
+            {
+                VariantId = v.Id,
+                ProductName = v.ProductName ?? "",
+                VariantName = v.Name ?? "",
+                Image = v.Image,
+                Stock = (double)(v.Stock ?? 0),
+                Price = v.Price,
+                CategoryName = v.CategoryName,
+                SellerId = v.SellerId,
+                SellerName = sellerNames.TryGetValue(v.SellerId, out var sn) ? sn : null,
+                PlatformType = v.PlatformType.ToString()
+            }).ToList();
+        }
+
+        #region Product Analytics
+
+        public async Task<ProductAnalyticsSM> GetProductAnalyticsAsync(
+            long sellerId, DateTime? startDate = null, DateTime? endDate = null, string? period = null)
+        {
+            var istToday = IstDateHelper.Now.Date;
+            DateTime effectiveStart;
+            DateTime effectiveEnd;
+
+            if (startDate.HasValue && endDate.HasValue)
+            {
+                effectiveStart = startDate.Value.Date;
+                effectiveEnd = endDate.Value.Date;
+            }
+            else
+            {
+                effectiveEnd = istToday;
+                effectiveStart = period switch
+                {
+                    "today"     => istToday,
+                    "yesterday" => istToday.AddDays(-1),
+                    "week"      => istToday.AddDays(-6),
+                    "month"     => istToday.AddDays(-29),
+                    _           => istToday.AddDays(-29),
+                };
+                if (period == "yesterday") effectiveEnd = istToday.AddDays(-1);
+            }
+
+            var startUtc = IstDateHelper.IstDayStartUtc(effectiveStart);
+            var endUtc = IstDateHelper.IstDayEndUtc(effectiveEnd);
+
+            var result = new ProductAnalyticsSM
+            {
+                StartDate = effectiveStart,
+                EndDate = effectiveEnd,
+                PeriodLabel = period ?? $"{effectiveStart:MMM dd} - {effectiveEnd:MMM dd}"
+            };
+
+            // Get all delivered order items for this seller in the date range
+            var orderItemsQuery = _apiDbContext.OrderItem
+                .Where(x =>
+                    x.ProductVariant.Product.SellerId == sellerId &&
+                    x.Order.PaymentStatus == PaymentStatusDM.Paid &&
+                    x.Order.OrderStatus == OrderStatusDM.Delivered &&
+                    x.Order.CreatedAt >= startUtc &&
+                    x.Order.CreatedAt < endUtc);
+
+            // Product-wise aggregation
+            var productData = await orderItemsQuery
+                .GroupBy(x => new
+                {
+                    x.ProductVariantId,
+                    x.ProductVariant.Product.Name,
+                    VariantName = x.ProductVariant.Name,
+                    CategoryName = x.ProductVariant.Product.Category.Name,
+                    x.ProductVariant.Image,
+                    x.UnitPrice
+                })
+                .Select(g => new ProductPerformanceSM
+                {
+                    ProductVariantId = g.Key.ProductVariantId,
+                    ProductName = g.Key.Name,
+                    VariantName = g.Key.VariantName,
+                    CategoryName = g.Key.CategoryName,
+                    ImageUrl = g.Key.Image,
+                    QuantitySold = g.Sum(x => x.Quantity),
+                    Revenue = g.Sum(x => x.TotalPrice),
+                    OrdersCount = g.Select(x => x.OrderId).Distinct().Count(),
+                    AverageSellingPrice = g.Average(x => x.UnitPrice)
+                })
+                .OrderByDescending(x => x.Revenue)
+                .ToListAsync();
+
+            result.Products = productData;
+
+            // Calculate totals for percentages
+            var totalRevenue = productData.Sum(p => p.Revenue);
+            var totalQuantity = productData.Sum(p => p.QuantitySold);
+
+            // Calculate percentages
+            foreach (var product in productData)
+            {
+                product.RevenuePercentageOfTotal = totalRevenue > 0
+                    ? (double)(product.Revenue / totalRevenue) * 100
+                    : 0;
+                product.QuantityPercentageOfTotal = totalQuantity > 0
+                    ? (double)product.QuantitySold / totalQuantity * 100
+                    : 0;
+            }
+
+            // KPIs
+            var totalOrders = await _apiDbContext.Order
+                .Where(x =>
+                    x.SellerId == sellerId &&
+                    x.OrderStatus == OrderStatusDM.Delivered &&
+                    x.CreatedAt >= startUtc &&
+                    x.CreatedAt < endUtc)
+                .CountAsync();
+
+            var activeProducts = await _apiDbContext.ProductVariant
+                .Where(x =>
+                    x.Product.SellerId == sellerId &&
+                    x.Status == ProductStatusDM.Active)
+                .CountAsync();
+
+            result.Kpis = new ProductAnalyticsKpiSM
+            {
+                TotalRevenue = totalRevenue,
+                TotalQuantitySold = totalQuantity,
+                TotalOrders = totalOrders,
+                ActiveProductsCount = activeProducts,
+                AverageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0,
+                TopProductName = productData.FirstOrDefault()?.ProductName ?? "—",
+                TopProductQuantity = productData.FirstOrDefault()?.QuantitySold ?? 0
+            };
+
+            // Daily trend for chart
+            var dailyTrend = await orderItemsQuery
+                .GroupBy(x => x.Order.CreatedAt!.Value.Date)
+                .Select(g => new ProductSalesTrendPointSM
+                {
+                    Date = g.Key,
+                    Revenue = g.Sum(x => x.TotalPrice),
+                    Quantity = g.Sum(x => x.Quantity),
+                    OrdersCount = g.Select(x => x.OrderId).Distinct().Count()
+                })
+                .OrderBy(x => x.Date)
+                .ToListAsync();
+
+            // Fill missing dates with zeros
+            result.Trend = FillMissingDates(dailyTrend, effectiveStart, effectiveEnd);
+
+            // Category performance
+            var categoryData = productData
+                .GroupBy(x => x.CategoryName ?? "Uncategorized")
+                .Select(g => new CategoryPerformanceSM
+                {
+                    CategoryName = g.Key,
+                    ProductCount = g.Select(p => p.ProductVariantId).Distinct().Count(),
+                    QuantitySold = g.Sum(p => p.QuantitySold),
+                    Revenue = g.Sum(p => p.Revenue),
+                    RevenuePercentage = totalRevenue > 0
+                        ? (double)(g.Sum(p => p.Revenue) / totalRevenue) * 100
+                        : 0
+                })
+                .OrderByDescending(x => x.Revenue)
+                .ToList();
+
+            result.Categories = categoryData;
+
+            return result;
+        }
+
+        private static List<ProductSalesTrendPointSM> FillMissingDates(
+            List<ProductSalesTrendPointSM> existing, DateTime start, DateTime end)
+        {
+            var result = new List<ProductSalesTrendPointSM>();
+            var dataDict = existing.ToDictionary(x => x.Date.Date);
+
+            for (var date = start.Date; date <= end.Date; date = date.AddDays(1))
+            {
+                if (dataDict.TryGetValue(date, out var point))
+                {
+                    result.Add(point);
+                }
+                else
+                {
+                    result.Add(new ProductSalesTrendPointSM
+                    {
+                        Date = date,
+                        Revenue = 0,
+                        Quantity = 0,
+                        OrdersCount = 0
+                    });
+                }
+            }
+
+            return result;
+        }
+
+        #endregion Product Analytics
 
         private static IQueryable<DomainModels.v1.OrderDM> ApplySellerOrderStatusFilter(
             IQueryable<DomainModels.v1.OrderDM> query, string statusFilter)

@@ -29,6 +29,8 @@ namespace Siffrum.Ecom.ServiceModels.v1
 
         public PlatformTypeSM PlatformType { get; set; }
 
+        public DeliverySpeedTypeSM? ApplicableDeliverySpeed { get; set; }
+
     }
 
     public class PromoCodeValidateRequestSM
@@ -36,6 +38,7 @@ namespace Siffrum.Ecom.ServiceModels.v1
         public string Code { get; set; }
         public decimal CartSubtotal { get; set; }
         public PlatformTypeSM? PlatformType { get; set; }
+        public DeliverySpeedTypeSM? DeliverySpeedType { get; set; }
     }
 
     public class PromoCodeValidationResultSM

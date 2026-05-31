@@ -6,5 +6,7 @@ namespace Siffrum.Ecom.ServiceModels.v1
     {
         public long ProductVariantId { get; set; }
         public PlatformTypeSM PlatformType { get; set; }
+        // SpeedyMart only: required when the same variant exists in both Express and Normal carts
+        public DeliverySpeedTypeSM? DeliverySpeedType { get; set; }
     }
 }

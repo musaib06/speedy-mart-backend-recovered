@@ -24,5 +24,8 @@ namespace Siffrum.Ecom.ServiceModels.v1
         public string? Description { get; set; }
 
         public string? ApprovalStatus { get; set; }
+
+        // SpeedyMart-specific: product overview as JSON (array of strings)
+        public string? OverviewPoints { get; set; }
     }
 }

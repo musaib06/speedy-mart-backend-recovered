@@ -10,5 +10,6 @@ namespace Siffrum.Ecom.ServiceModels.v1
         public string? UnitName { get; set; }
         public string? ImageBase64 { get; set; }
         public string? NetworkImage { get; set; }
+        public string? VariantAttributes { get; set; }
     }
 }

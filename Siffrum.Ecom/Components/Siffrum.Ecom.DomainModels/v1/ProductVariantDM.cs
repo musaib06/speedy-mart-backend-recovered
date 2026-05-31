@@ -99,6 +99,45 @@ namespace Siffrum.Ecom.DomainModels.v1
         [Column("sku")]
         public string SKU { get; set; } = string.Empty;
 
+        // SpeedyMart-specific fields for variants
+        [Column("compare_at_price")]
+        public decimal? CompareAtPrice { get; set; }  // Original "crossed out" price (strikethrough)
+
+        [Column("variant_attributes")]
+        public string? VariantAttributes { get; set; }  // JSON: {"color": "Blue", "size": "Large"}
+
+        [Column("delivery_speed_type")]
+        public int DeliverySpeedType { get; set; } = 1;  // 1=NormalOnly, 2=ExpressOnly, 3=ExpressAndNormal
+
+        [Column("variant_image_url")]
+        [MaxLength(500)]
+        public string? VariantImageUrl { get; set; }  // Per-variant image (e.g. color-specific)
+
+        // Produce-specific convenience fields
+        [Column("sell_by_mode")] // 1=Piece, 2=Weight
+        public int SellByMode { get; set; } = 1;
+
+        [Column("min_order_qty")]
+        public decimal? MinOrderQty { get; set; }
+
+        [Column("max_order_qty")]
+        public decimal? MaxOrderQty { get; set; }
+
+        [Column("order_step_qty")]
+        public decimal? OrderStepQty { get; set; }
+
+        [Column("shelf_life_days")]
+        public int? ShelfLifeDays { get; set; }
+
+        [Column("best_before_label")]
+        public string? BestBeforeLabel { get; set; }
+
+        [Column("is_organic")]
+        public bool IsOrganic { get; set; }
+
+        [Column("requires_cold_chain")]
+        public bool RequiresColdChain { get; set; }
+
         [Column("deleted_at")]
         public DateTime? DeletedAt { get; set; }
 

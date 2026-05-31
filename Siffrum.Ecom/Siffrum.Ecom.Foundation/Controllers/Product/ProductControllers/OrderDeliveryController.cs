@@ -197,6 +197,30 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
 
         #endregion
 
+        #region Admin Live Tracking
+
+        [HttpGet("admin/active-delivery-boys")]
+        [Authorize(
+            AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
+            Roles = "SuperAdmin, SystemAdmin")]
+        public async Task<ActionResult<ApiResponse<List<DeliveryBoyLiveLocationSM>>>> GetActiveDeliveryBoys()
+        {
+            var response = await _deliveryProcess.GetActiveDeliveryBoysWithLocation();
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        [HttpGet("admin/available-delivery-boys")]
+        [Authorize(
+            AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
+            Roles = "SuperAdmin, SystemAdmin")]
+        public async Task<ActionResult<ApiResponse<List<DeliveryBoyLiveLocationSM>>>> GetAvailableDeliveryBoys()
+        {
+            var response = await _deliveryProcess.GetAvailableDeliveryBoys();
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        #endregion
+
 
         #region User Tracking
 

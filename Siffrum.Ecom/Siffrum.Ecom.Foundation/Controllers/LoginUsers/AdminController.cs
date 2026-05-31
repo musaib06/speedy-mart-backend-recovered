@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OData.Query;
 using Siffrum.Ecom.BAL.Foundation.Web;
 using Siffrum.Ecom.BAL.LoginUsers;
+using Siffrum.Ecom.BAL.Base;
 using Siffrum.Ecom.DomainModels.Enums;
 using Siffrum.Ecom.Foundation.Controllers.Base;
 using Siffrum.Ecom.Foundation.Security;
@@ -21,11 +22,13 @@ namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
     {
         private readonly AdminProcess _adminProcess;
         private readonly AdminDashboardProcess _adminDashboard;
-        public AdminController(AdminProcess process, AdminDashboardProcess adminDashboard)
+        private readonly ActivityLogProcess _activityLogProcess;
+        public AdminController(AdminProcess process, AdminDashboardProcess adminDashboard, ActivityLogProcess activityLogProcess)
             : base(process)
         { 
             _adminProcess = process;
             _adminDashboard = adminDashboard;
+            _activityLogProcess = activityLogProcess;
         }
 
         [HttpGet]
@@ -308,10 +311,10 @@ namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
         }
         
         [HttpGet("dashboard")]
-        public async Task<ActionResult<ApiResponse<AdminDashboardResponseSM>>> Dashboard(DateTime? date = null)
+        public async Task<ActionResult<ApiResponse<AdminDashboardResponseSM>>> Dashboard(DateTime? date = null, int? platform = null)
         {
 
-            var response = await _adminDashboard.GetDashboardAsync(date);
+            var response = await _adminDashboard.GetDashboardAsync(date, platform);
             if (response != null)
             {
                 return ModelConverter.FormNewSuccessResponse(response);
@@ -433,5 +436,98 @@ namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
                 return BadRequest(ModelConverter.FormNewErrorResponse(DomainConstants.DisplayMessagesRoot.Display_PassedDataNotSaved, ApiErrorTypeSM.NoRecord_NoLog));
             }
         }
+
+        #region Activity Logs
+
+        /// <summary>
+        /// Get activity logs with filtering and pagination (up to 5000 records)
+        /// </summary>
+        [HttpGet("activity-logs")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin")]
+        public async Task<ActionResult<ApiResponse<GetActivityLogsResponseSM>>> GetActivityLogs(
+            int skip = 0,
+            int take = 50,
+            string? userType = null,
+            string? actionType = null,
+            string? actionCategory = null,
+            long? userId = null,
+            DateTime? fromDate = null,
+            DateTime? toDate = null)
+        {
+            // Limit take to max 5000 records as per requirement
+            if (take > 5000) take = 5000;
+            if (take < 1) take = 50;
+
+            var request = new GetActivityLogsRequestSM
+            {
+                Skip = skip,
+                Take = take,
+                UserType = userType,
+                ActionType = actionType,
+                ActionCategory = actionCategory,
+                UserId = userId,
+                FromDate = fromDate,
+                ToDate = toDate
+            };
+
+            var response = await _activityLogProcess.GetLogsAsync(request);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        /// <summary>
+        /// Get activity logs summary for dashboard
+        /// </summary>
+        [HttpGet("activity-logs/summary")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin")]
+        public async Task<ActionResult<ApiResponse<ActivityLogSummarySM>>> GetActivityLogsSummary()
+        {
+            var response = await _activityLogProcess.GetSummaryAsync();
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        /// <summary>
+        /// Get filter options for activity logs
+        /// </summary>
+        [HttpGet("activity-logs/filters")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin")]
+        public async Task<ActionResult<ApiResponse<Dictionary<string, List<string>>>>> GetActivityLogFilters()
+        {
+            var userTypes = await _activityLogProcess.GetUserTypesAsync();
+            var actionTypes = await _activityLogProcess.GetActionTypesAsync();
+            var actionCategories = await _activityLogProcess.GetActionCategoriesAsync();
+
+            var filters = new Dictionary<string, List<string>>
+            {
+                { "userTypes", userTypes },
+                { "actionTypes", actionTypes },
+                { "actionCategories", actionCategories }
+            };
+
+            return ModelConverter.FormNewSuccessResponse(filters);
+        }
+
+        /// <summary>
+        /// Get logs for a specific entity
+        /// </summary>
+        [HttpGet("activity-logs/entity/{entityType}/{entityId}")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin")]
+        public async Task<ActionResult<ApiResponse<List<ActivityLogSM>>>> GetEntityActivityLogs(string entityType, long entityId, int take = 50)
+        {
+            var response = await _activityLogProcess.GetEntityLogsAsync(entityType, entityId, take);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        /// <summary>
+        /// Get logs for a specific user
+        /// </summary>
+        [HttpGet("activity-logs/user/{userId}")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin")]
+        public async Task<ActionResult<ApiResponse<List<ActivityLogSM>>>> GetUserActivityLogs(long userId, string? userType = null, int take = 100)
+        {
+            var response = await _activityLogProcess.GetUserLogsAsync(userId, userType, take);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        #endregion Activity Logs
     }
 }

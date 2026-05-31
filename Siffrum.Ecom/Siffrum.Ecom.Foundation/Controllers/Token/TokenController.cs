@@ -4,6 +4,7 @@ using Google.Apis.Auth.OAuth2.Responses;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Siffrum.Ecom.BAL.AppUsers;
+using Siffrum.Ecom.BAL.Base;
 using Siffrum.Ecom.BAL.ExceptionHandler;
 using Siffrum.Ecom.BAL.LoginUsers;
 using Siffrum.Ecom.BAL.Token;
@@ -32,12 +33,13 @@ namespace Siffrum.Ecom.Foundation.Controllers.Token
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ExternalUserProcess _socialLoginProcess;
         private readonly UserProcess _userProcess;
+        private readonly ActivityLogger _activityLogger;
 
         #endregion Properties
 
         #region Constructor
         public TokenController(TokenProcess TokenProcess, JwtHandler jwtHandler, ExternalUserProcess socialLoginProcess,UserProcess userProcess,
-            APIConfiguration aPIConfiguration, IHttpClientFactory httpClientFactory)
+            APIConfiguration aPIConfiguration, IHttpClientFactory httpClientFactory, ActivityLogger activityLogger)
         {
             _tokenProcess = TokenProcess;
             _jwtHandler = jwtHandler;
@@ -45,6 +47,7 @@ namespace Siffrum.Ecom.Foundation.Controllers.Token
             _httpClientFactory = httpClientFactory;
             _socialLoginProcess = socialLoginProcess;
             _userProcess = userProcess;
+            _activityLogger = activityLogger;
         }
         #endregion Constructor
 
@@ -74,6 +77,17 @@ namespace Siffrum.Ecom.Foundation.Controllers.Token
             (TokenUserSM userSM, long adminId) = await _tokenProcess.ValidateLoginAndGenerateToken(innerReq);
             if (userSM == null)
             {
+                // Log failed login attempt
+                await _activityLogger.LogFailedAsync(
+                    0, // Unknown user ID
+                    innerReq.RoleType.ToString(),
+                    innerReq.LoginId,
+                    null,
+                    "Login",
+                    "Authentication",
+                    $"Failed login attempt for user: {innerReq.LoginId}",
+                    "Invalid Credentials");
+
                 return NotFound(ModelConverter.FormNewErrorResponse("Invalid Credentials",
                     ApiErrorTypeSM.InvalidInputData_Log));
             }
@@ -123,6 +137,15 @@ namespace Siffrum.Ecom.Foundation.Controllers.Token
                 var token = await _jwtHandler.ProtectAsync(_apiConfiguration.JwtTokenSigningKey, claims, new DateTimeOffset(DateTime.Now), new DateTimeOffset(expiryDate), "Siffrum");
                 // here if user is derived class, all properties will be sent
                 userSM.Password = null;  //Handle password here
+
+                // Log the successful login activity
+                await _activityLogger.LogLoginAsync(
+                    userSM.Id,
+                    userSM.RoleType.ToString(),
+                    innerReq.LoginId,
+                    userSM.Email,
+                    success: true);
+
                 var tokenResponse = new TokenResponseSM()
                 {
                     AccessToken = token,
