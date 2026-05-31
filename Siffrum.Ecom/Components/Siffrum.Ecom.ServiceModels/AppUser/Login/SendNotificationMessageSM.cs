@@ -1,4 +1,4 @@
-﻿namespace Siffrum.Ecom.ServiceModels.AppUser.Login
+﻿git commit -m "Stage version"namespace Siffrum.Ecom.ServiceModels.AppUser.Login
 {
     public class SendNotificationMessageSM
     {
