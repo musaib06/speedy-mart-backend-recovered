@@ -337,33 +337,33 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
 
         [HttpGet("speedyMart/most-ordered")]
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin, User, Seller")]
-        public async Task<ActionResult<ApiResponse<List<UserSpeedyMartProductSM>>>> GetSpeedyMartMostOrderedProducts(int skip, int top)
+        public async Task<ActionResult<ApiResponse<List<UserSpeedyMartProductSM>>>> GetSpeedyMartMostOrderedProducts(int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _productProcess.GetSpeedyMartMostOrderedProducts(skip, top);
+            var response = await _productProcess.GetSpeedyMartMostOrderedProducts(skip, top, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
         [HttpGet("speedymart/most-ordered/count")]
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin, User, Seller")]
-        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetSpeedyMartMostOrderedProductsCount()
+        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetSpeedyMartMostOrderedProductsCount(DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _productProcess.GetSpeedyMartMostOrderedProductsCount();
+            var response = await _productProcess.GetSpeedyMartMostOrderedProductsCount(deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
         [HttpGet("speedymart/latest")]
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin, User, Seller")]
-        public async Task<ActionResult<ApiResponse<List<UserSpeedyMartProductSM>>>> GetSpeedyMartLatestProducts(int skip, int top)
+        public async Task<ActionResult<ApiResponse<List<UserSpeedyMartProductSM>>>> GetSpeedyMartLatestProducts(int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _productProcess.GetSpeedyMartLatestProducts(skip, top);
+            var response = await _productProcess.GetSpeedyMartLatestProducts(skip, top, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
         [HttpGet("speedymart/latest/count")]
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin, User, Seller")]
-        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetSpeedyMartLatestProductsCount()
+        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetSpeedyMartLatestProductsCount(DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _productProcess.GetSpeedyMartLatestProductsCount();
+            var response = await _productProcess.GetSpeedyMartLatestProductsCount(deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -405,17 +405,47 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
         
         [HttpGet("speedymart/search")]
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin, User, Seller")]
-        public async Task<ActionResult<ApiResponse<List<UserSpeedyMartProductSM>>>> GetHoGetSpeedyMartProductsBySearchtBoxSearch(string searchString,int skip, int top)
+        public async Task<ActionResult<ApiResponse<List<UserSpeedyMartProductSM>>>> GetHoGetSpeedyMartProductsBySearchtBoxSearch(string searchString, int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _productProcess.GetSpeedyMartProductsBySearch(searchString, skip, top);
+            var response = await _productProcess.GetSpeedyMartProductsBySearch(searchString, skip, top, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
         [HttpGet("speedymart/search/count")]
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin, User, Seller")]
-        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetSpeedyMartProductsBySearchCount(string searchString)
+        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetSpeedyMartProductsBySearchCount(string searchString, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _productProcess.GetSpeedyMartProductsBySearchCount(searchString);
+            var response = await _productProcess.GetSpeedyMartProductsBySearchCount(searchString, deliverySpeedType);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        /// <summary>
+        /// Search SpeedyMart products with delivery speed filter
+        /// </summary>
+        /// <param name="searchString">Search text</param>
+        /// <param name="skip">Skip count</param>
+        /// <param name="top">Take count</param>
+        /// <param name="deliverySpeedType">1=Normal, 2=Express, 3=Both (null for all)</param>
+        [HttpGet("speedymart/search/filter")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin, User, Seller")]
+        public async Task<ActionResult<ApiResponse<List<UserSpeedyMartProductSM>>>> GetSpeedyMartProductsBySearchWithFilter(
+            string searchString, int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
+        {
+            var response = await _productProcess.GetSpeedyMartProductsBySearchWithDeliveryFilter(searchString, skip, top, deliverySpeedType);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        /// <summary>
+        /// Get count of SpeedyMart products by search with delivery speed filter
+        /// </summary>
+        /// <param name="searchString">Search text</param>
+        /// <param name="deliverySpeedType">1=Normal, 2=Express, 3=Both (null for all)</param>
+        [HttpGet("speedymart/search/filter/count")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin, User, Seller")]
+        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetSpeedyMartProductsBySearchWithFilterCount(
+            string searchString, DeliverySpeedTypeSM? deliverySpeedType = null)
+        {
+            var response = await _productProcess.GetSpeedyMartProductsBySearchWithDeliveryFilterCount(searchString, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 

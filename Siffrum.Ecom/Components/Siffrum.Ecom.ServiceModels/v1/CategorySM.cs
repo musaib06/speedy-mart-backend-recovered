@@ -37,5 +37,6 @@ namespace Siffrum.Ecom.ServiceModels.v1
 
         public int ProductsCount { get; set; }
         public long? SuggestedBySellerId { get; set; }
+        public DeliverySpeedTypeSM DeliverySpeedType { get; set; }
     }
 }

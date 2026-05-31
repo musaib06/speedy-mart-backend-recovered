@@ -16,5 +16,6 @@ namespace Siffrum.Ecom.ServiceModels.v1
         public StatusSM Status { get; set; }
         public long ProductVariantId { get; set; }
         public List<string> Images { get; set; } 
+        public List<string> NetworkImages { get; set; } = new();
     }
 }

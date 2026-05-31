@@ -45,9 +45,9 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
             AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
             Roles = "SuperAdmin, SystemAdmin, User, Seller")]
         public async Task<ActionResult<ApiResponse<List<TagSM>>>> GetAllTags(
-            int skip, int top)
+            int skip, int top, PlatformTypeSM? platform = null)
         {
-            var response = await _productTagProcess.GetAllTags(skip, top);
+            var response = await _productTagProcess.GetAllTags(skip, top, platform);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -55,9 +55,10 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
         [Authorize(
             AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
             Roles = "SuperAdmin, SystemAdmin, User, Seller")]
-        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetAllTagsCount()
+        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetAllTagsCount(
+            PlatformTypeSM? platform = null)
         {
-            var response = await _productTagProcess.GetAllTagsCount();
+            var response = await _productTagProcess.GetAllTagsCount(platform);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 

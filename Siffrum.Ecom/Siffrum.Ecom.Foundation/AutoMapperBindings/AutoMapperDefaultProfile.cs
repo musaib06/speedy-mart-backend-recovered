@@ -70,6 +70,7 @@ namespace Siffrum.Ecom.Foundation.AutoMapperBindings
                 .ForMember(dest => dest.SelectedAddons, opt => opt.Ignore());
             CreateMap<DeliveryBoyPincodesDM, DeliveryBoyPincodesSM>().ReverseMap();
             CreateMap<PlatformTypeSM, PlatformTypeDM>().ReverseMap();
+            CreateMap<DeliverySpeedTypeSM, DeliverySpeedTypeDM>().ReverseMap();
             CreateMap<ProductUnitDM, ProductUnitSM>();
             CreateMap<ProductUnitSM, ProductUnitDM>()
                 .ForMember(dest => dest.Unit, opt => opt.Ignore())
@@ -84,6 +85,41 @@ namespace Siffrum.Ecom.Foundation.AutoMapperBindings
             CreateMap<ComplaintMessageDM, ComplaintMessageSM>().ReverseMap();
             CreateMap<CashCollectionDM, CashCollectionSM>().ReverseMap();
             CreateMap<UserSupportReplyDM, UserSupportReplySM>().ReverseMap();
+
+            // SpeedyMart new mappings
+            CreateMap<SpeedyMartOfferDM, SpeedyMartOfferSM>().ReverseMap();
+            // Explicit mapping for Product overview json string
+            CreateMap<ProductDM, ProductSM>()
+                .ForMember(dest => dest.ApprovalStatus, opt => opt.Ignore())
+                .ForMember(dest => dest.OverviewPoints, opt => opt.MapFrom(src => src.OverviewPoints))
+                .ReverseMap()
+                .ForMember(dest => dest.OverviewPoints, opt => opt.MapFrom(src => src.OverviewPoints));
+            CreateMap<ProductComplaintDM, ProductComplaintSM>()
+                .ForMember(dest => dest.Comments, opt => opt.Ignore())
+                .ForMember(dest => dest.ProductName, opt => opt.Ignore())
+                .ForMember(dest => dest.SellerName, opt => opt.Ignore());
+            CreateMap<ProductComplaintCommentDM, ProductComplaintCommentSM>()
+                .ForMember(dest => dest.CommenterName, opt => opt.Ignore());
+            CreateMap<ProductAttributeDimensionDM, ProductAttributeDimensionSM>()
+                .ForMember(dest => dest.Values, opt => opt.Ignore())
+                .AfterMap((src, dest) =>
+                {
+                    if (string.IsNullOrWhiteSpace(src.ValuesJson)) { dest.Values = new List<DimensionValueSM>(); }
+                    else { try { dest.Values = System.Text.Json.JsonSerializer.Deserialize<List<DimensionValueSM>>(src.ValuesJson) ?? new List<DimensionValueSM>(); } catch { dest.Values = new List<DimensionValueSM>(); } }
+                });
+            CreateMap<ProductAttributeDimensionSM, ProductAttributeDimensionDM>()
+                .ForMember(dest => dest.ValuesJson, opt => opt.Ignore())
+                .AfterMap((src, dest) =>
+                {
+                    dest.ValuesJson = (src.Values == null || src.Values.Count == 0)
+                        ? null
+                        : System.Text.Json.JsonSerializer.Serialize(src.Values);
+                });
+            CreateMap<LowStockAlertDM, LowStockAlertSM>()
+                .ForMember(dest => dest.VariantName, opt => opt.Ignore())
+                .ForMember(dest => dest.ProductName, opt => opt.Ignore())
+                .ForMember(dest => dest.SellerName, opt => opt.Ignore())
+                .ForMember(dest => dest.CurrentStock, opt => opt.Ignore());
 
         }
     }

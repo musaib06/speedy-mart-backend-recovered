@@ -18,11 +18,11 @@ namespace Siffrum.Ecom.BAL.Product
 
         #region GET
 
-        public async Task<List<StoreHoursSM>> GetStoreHours(long sellerId)
+        public async Task<List<StoreHoursSM>> GetStoreHours(long sellerId, short platformType = 0)
         {
             var hours = await _apiDbContext.StoreHours
                 .AsNoTracking()
-                .Where(x => x.SellerId == sellerId)
+                .Where(x => x.SellerId == sellerId && x.PlatformType == platformType)
                 .OrderBy(x => x.DayOfWeek)
                 .ToListAsync();
 
@@ -33,7 +33,7 @@ namespace Siffrum.Ecom.BAL.Product
 
         #region UPSERT (Seller sets weekly schedule)
 
-        public async Task<List<StoreHoursSM>> UpsertStoreHours(long sellerId, List<StoreHoursSM> hoursList)
+        public async Task<List<StoreHoursSM>> UpsertStoreHours(long sellerId, List<StoreHoursSM> hoursList, short platformType = 0)
         {
             if (hoursList == null || !hoursList.Any())
                 throw new SiffrumException(ApiErrorTypeSM.InvalidInputData_NoLog,
@@ -51,7 +51,7 @@ namespace Siffrum.Ecom.BAL.Product
             }
 
             var existing = await _apiDbContext.StoreHours
-                .Where(x => x.SellerId == sellerId)
+                .Where(x => x.SellerId == sellerId && x.PlatformType == platformType)
                 .ToListAsync();
 
             foreach (var h in hoursList)
@@ -73,6 +73,7 @@ namespace Siffrum.Ecom.BAL.Product
                         OpenTime = h.IsClosed ? null : h.OpenTime,
                         CloseTime = h.IsClosed ? null : h.CloseTime,
                         IsClosed = h.IsClosed,
+                        PlatformType = platformType,
                         CreatedAt = DateTime.UtcNow
                     };
                     await _apiDbContext.StoreHours.AddAsync(dm);
@@ -80,14 +81,14 @@ namespace Siffrum.Ecom.BAL.Product
             }
 
             await _apiDbContext.SaveChangesAsync();
-            return await GetStoreHours(sellerId);
+            return await GetStoreHours(sellerId, platformType);
         }
 
         #endregion
 
         #region STORE AVAILABILITY CHECK (for Flutter app & order validation)
 
-        public async Task<StoreAvailabilitySM> CheckStoreAvailability(long sellerId, string timezone = "Asia/Kolkata")
+        public async Task<StoreAvailabilitySM> CheckStoreAvailability(long sellerId, string timezone = "Asia/Kolkata", short platformType = 0)
         {
             var now = TimeZoneInfo.ConvertTimeFromUtc(
                 DateTime.UtcNow,
@@ -98,7 +99,7 @@ namespace Siffrum.Ecom.BAL.Product
 
             var hours = await _apiDbContext.StoreHours
                 .AsNoTracking()
-                .Where(x => x.SellerId == sellerId)
+                .Where(x => x.SellerId == sellerId && x.PlatformType == platformType)
                 .ToListAsync();
 
             // If no hours set, store is always open
@@ -130,7 +131,9 @@ namespace Siffrum.Ecom.BAL.Product
                 return new StoreAvailabilitySM
                 {
                     IsOpen = true,
-                    Message = "Store is open 24 hours today"
+                    Message = "Store is open 24 hours today",
+                    EstimatedMinutesMin = 10,
+                    EstimatedMinutesMax = 30
                 };
             }
 
@@ -163,7 +166,9 @@ namespace Siffrum.Ecom.BAL.Product
             {
                 IsOpen = true,
                 Message = $"Store is open until {FormatTime(today.CloseTime!.Value)}",
-                ClosesAt = today.CloseTime
+                ClosesAt = today.CloseTime,
+                EstimatedMinutesMin = 10,
+                EstimatedMinutesMax = 30
             };
         }
 
@@ -203,5 +208,7 @@ namespace Siffrum.Ecom.BAL.Product
         public string Message { get; set; }
         public TimeSpan? OpensAt { get; set; }
         public TimeSpan? ClosesAt { get; set; }
+        public int? EstimatedMinutesMin { get; set; }
+        public int? EstimatedMinutesMax { get; set; }
     }
 }

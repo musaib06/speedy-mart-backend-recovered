@@ -30,10 +30,13 @@ namespace Siffrum.Ecom.BAL.Product
         private readonly ImageProcess _imageProcess;
         private readonly StoreHoursProcess _storeHoursProcess;
         private readonly InAppNotificationProcess _inAppNotificationProcess;
+        private readonly InventoryTransactionProcess _inventoryTx;
+        private readonly SettingsProcess _settingsProcess;
         public OrderProcess(IMapper mapper, ApiDbContext apiDbContext,UserAddressProcess userAddressProcess,
             NotificationProcess notificationProcess, ImageProcess imageProcess,
             ILoginUserDetail loginUserDetail, StoreHoursProcess storeHoursProcess,
-            InAppNotificationProcess inAppNotificationProcess)
+            InAppNotificationProcess inAppNotificationProcess, InventoryTransactionProcess inventoryTx,
+            SettingsProcess settingsProcess)
             : base(mapper, apiDbContext)
         {
             _loginUserDetail = loginUserDetail;
@@ -42,6 +45,8 @@ namespace Siffrum.Ecom.BAL.Product
             _notificationProcess = notificationProcess;
             _storeHoursProcess = storeHoursProcess;
             _inAppNotificationProcess = inAppNotificationProcess;
+            _inventoryTx = inventoryTx;
+            _settingsProcess = settingsProcess;
         }
 
         #region OData
@@ -113,8 +118,6 @@ namespace Siffrum.Ecom.BAL.Product
                 orderDM.RazorpayPaymentId = null;
                 orderDM.AddressId = defaultAddress.Id;
                 orderDM.SellerId = orderSM.SellerId;
-                // ✅ Use frontend amount directly
-                orderDM.DueAmount = orderDM.Amount;
 
                 var orderItemDMs = _mapper.Map<List<OrderItemDM>>(itemSMs);
 
@@ -135,11 +138,13 @@ namespace Siffrum.Ecom.BAL.Product
                     .Where(v => variantIds.Contains(v.Id))
                     .ToDictionaryAsync(v => v.Id);
 
-                // ✅ Calculate tax server-side from product TaxPercentage (same as cart)
+                // ✅ Recalculate items subtotal server-side (ignore app-sent Amount to avoid double-counting)
+                decimal itemsSubTotal = 0;
                 decimal totalTax = 0;
                 foreach (var item in orderItemDMs)
                 {
                     item.TotalPrice = item.UnitPrice * item.Quantity;
+                    itemsSubTotal += item.TotalPrice;
                     if (variants.TryGetValue(item.ProductVariantId, out var v))
                     {
                         var taxPct = v.Product?.TaxPercentage ?? 0;
@@ -147,6 +152,42 @@ namespace Siffrum.Ecom.BAL.Product
                     }
                 }
                 orderDM.TaxAmount = totalTax;
+
+                // Base amount = items + delivery + tax (server-calculated, not from app)
+                orderDM.Amount = itemsSubTotal + orderDM.DeliveryCharge + totalTax;
+
+                // ✅ Calculate surge charge based on seller settings, platform type, and delivery speed
+                var surgeCharge = await CalculateSurgeCharge(
+                    orderDM.SellerId,
+                    orderDM.PlatformType,
+                    orderDM.DeliverySpeedType);
+                orderDM.SurgeCharge = surgeCharge;
+                if (surgeCharge > 0)
+                    orderDM.Amount += surgeCharge;
+
+                // ✅ Calculate platform-specific charges (platform charge, cutlery, gift wrap, low cart fee)
+                var platformTypeSM = (PlatformTypeSM)orderDM.PlatformType;
+                var (platformCharge, cutleryCharge, giftWrapCharge, lowCartFee) = await _settingsProcess.CalculateChargesAsync(
+                    itemsSubTotal,
+                    platformTypeSM,
+                    orderDM.DeliverySpeedType,
+                    orderDM.IsCutlaryInculded,
+                    orderDM.IsGiftWrapIncluded);
+
+                orderDM.PlatormCharge = platformCharge;
+                orderDM.CutlaryCharge = cutleryCharge;
+                orderDM.GiftWrapCharge = giftWrapCharge;
+                orderDM.LowCartFeeCharge = lowCartFee;
+
+                var totalAdditionalCharges = platformCharge + cutleryCharge + giftWrapCharge + lowCartFee;
+                if (totalAdditionalCharges > 0)
+                    orderDM.Amount += totalAdditionalCharges;
+
+                // Apply discount
+                if (orderDM.DiscountAmount > 0)
+                    orderDM.Amount = Math.Max(0, orderDM.Amount - orderDM.DiscountAmount);
+
+                orderDM.DueAmount = orderDM.Amount;
 
                 await _apiDbContext.Order.AddAsync(orderDM);
                 await _apiDbContext.SaveChangesAsync();
@@ -169,8 +210,13 @@ namespace Siffrum.Ecom.BAL.Product
                     // Only deduct stock for COD; online orders deduct after payment confirmed
                     if (!isOnlinePayment && variant.Stock.HasValue)
                     {
+                        var stockBefore = variant.Stock.Value;
                         variant.Stock -= item.Quantity;
                         variant.UpdatedAt = DateTime.UtcNow;
+                        var stockAfter = variant.Stock.Value;
+                        await _inventoryTx.LogAsync(item.ProductVariantId, orderDM.SellerId,
+                            "OrderDeducted", stockBefore, stockAfter, -(decimal)item.Quantity,
+                            referenceId: orderDM.Id, note: $"Order #{orderDM.OrderNumber}");
                     }
                 }
 
@@ -206,6 +252,33 @@ namespace Siffrum.Ecom.BAL.Product
                     $"Message: {ex.Message}, InnerException: {ex.InnerException?.Message}",
                     "Failed to create order. Please try again later.");
             }
+
+            // ✅ Clear ordered SpeedyMart cart bucket after successful creation
+            try
+            {
+                if (orderDM.PlatformType == PlatformTypeDM.SpeedyMart && orderDM.DeliverySpeedType > 0)
+                {
+                    var smCart = await _apiDbContext.Carts
+                        .Include(c => c.Items)
+                        .FirstOrDefaultAsync(c => c.UserId == orderDM.UserId
+                            && c.PlatformType == PlatformTypeDM.SpeedyMart);
+                    if (smCart != null)
+                    {
+                        var orderedSpeed = (DeliverySpeedTypeDM)orderDM.DeliverySpeedType;
+                        var toRemove = smCart.Items
+                            .Where(i => i.DeliverySpeedType == orderedSpeed)
+                            .ToList();
+                        if (toRemove.Any())
+                        {
+                            _apiDbContext.CartItems.RemoveRange(toRemove);
+                            smCart.SubTotal = smCart.Items.Except(toRemove).Sum(i => i.TotalPrice);
+                            smCart.GrandTotal = smCart.SubTotal + smCart.TaxAmount;
+                            await _apiDbContext.SaveChangesAsync();
+                        }
+                    }
+                }
+            }
+            catch { /* Don't fail order if cart clear fails */ }
 
             // ✅ Notifications — skip for online payment (will fire after payment confirmed via webhook)
             if (orderDM.PaymentMode != PaymentModeDM.Online)
@@ -276,7 +349,7 @@ namespace Siffrum.Ecom.BAL.Product
         };
 
         private IQueryable<OrderDM> ApplySellerOrderFilters(
-            IQueryable<OrderDM> query, string? status, DateTime? dateFrom, DateTime? dateTo, PaymentModeSM? paymentMode = null)
+            IQueryable<OrderDM> query, string? status, DateTime? dateFrom, DateTime? dateTo, PaymentModeSM? paymentMode = null, PlatformTypeSM? platformType = null, string? customerPhone = null)
         {
             if (!string.IsNullOrEmpty(status) && _statusMap.TryGetValue(status, out var statuses))
                 query = query.Where(x => statuses.Contains(x.OrderStatus));
@@ -284,11 +357,11 @@ namespace Siffrum.Ecom.BAL.Product
             if (paymentMode.HasValue)
                 query = query.Where(x => x.PaymentMode == (PaymentModeDM)(int)paymentMode.Value);
 
+            if (platformType.HasValue && platformType.Value != PlatformTypeSM.None)
+                query = query.Where(x => x.PlatformType == (PlatformTypeDM)(int)platformType.Value);
+
             if (dateFrom.HasValue)
             {
-                // The input is IST datetime from frontend
-                // Data in DB is stored as UTC but with IST hour values (e.g., 03:03 UTC = 03:03 AM display)
-                // So we treat the IST input as UTC for comparison
                 var utcFrom = dateFrom.Value;
                 Console.WriteLine($"[DEBUG] dateFrom input: {dateFrom.Value:yyyy-MM-dd HH:mm:ss.fff} (Kind: {dateFrom.Value.Kind}), using as UTC: {utcFrom:yyyy-MM-dd HH:mm:ss.fff}");
                 query = query.Where(x => x.CreatedAt >= utcFrom);
@@ -299,18 +372,24 @@ namespace Siffrum.Ecom.BAL.Product
                 Console.WriteLine($"[DEBUG] dateTo input: {dateTo.Value:yyyy-MM-dd HH:mm:ss.fff} (Kind: {dateTo.Value.Kind}), using as UTC: {utcTo:yyyy-MM-dd HH:mm:ss.fff}");
                 query = query.Where(x => x.CreatedAt < utcTo);
             }
+            if (!string.IsNullOrWhiteSpace(customerPhone))
+            {
+                var phone = customerPhone.Trim();
+                query = query.Where(x => _apiDbContext.UserAddress
+                    .Any(a => a.Id == x.AddressId && a.Mobile.Contains(phone)));
+            }
             return query;
         }
 
         public async Task<List<OrderSM>> GetSellerOrders(
             long sellerId, int skip, int top,
-            string? status = null, DateTime? dateFrom = null, DateTime? dateTo = null, PaymentModeSM? paymentMode = null)
+            string? status = null, DateTime? dateFrom = null, DateTime? dateTo = null, PaymentModeSM? paymentMode = null, PlatformTypeSM? platformType = null, string? customerPhone = null)
         {
             var query = _apiDbContext.Order
                 .AsNoTracking()
                 .Where(x => x.SellerId == sellerId && x.OrderStatus != OrderStatusDM.AwaitingPayment);
 
-            query = ApplySellerOrderFilters(query, status, dateFrom, dateTo, paymentMode);
+            query = ApplySellerOrderFilters(query, status, dateFrom, dateTo, paymentMode, platformType, customerPhone);
 
             // Debug: Log the SQL that will be executed
             var sql = query.ToQueryString();
@@ -339,13 +418,13 @@ namespace Siffrum.Ecom.BAL.Product
 
         public async Task<IntResponseRoot> GetSellerOrdersCount(
             long sellerId,
-            string? status = null, DateTime? dateFrom = null, DateTime? dateTo = null, PaymentModeSM? paymentMode = null)
+            string? status = null, DateTime? dateFrom = null, DateTime? dateTo = null, PaymentModeSM? paymentMode = null, PlatformTypeSM? platformType = null, string? customerPhone = null)
         {
             var query = _apiDbContext.Order
                 .AsNoTracking()
                 .Where(x => x.SellerId == sellerId && x.OrderStatus != OrderStatusDM.AwaitingPayment);
 
-            query = ApplySellerOrderFilters(query, status, dateFrom, dateTo, paymentMode);
+            query = ApplySellerOrderFilters(query, status, dateFrom, dateTo, paymentMode, platformType, customerPhone);
 
             var count = await query.CountAsync();
             return new IntResponseRoot(count, "Total seller orders");
@@ -501,9 +580,18 @@ namespace Siffrum.Ecom.BAL.Product
         public async Task<List<OrderSM>> GetMyOrdersAsync(
             long userId,
             int skip,
-            int top)
+            int top,
+            PlatformTypeSM? platformType = null,
+            int? deliverySpeedType = null)
         {
             var query = _apiDbContext.Order.AsNoTracking().Where(x => x.UserId == userId);
+
+            if (platformType.HasValue && platformType.Value != PlatformTypeSM.None)
+                query = query.Where(x => x.PlatformType == (PlatformTypeDM)(int)platformType.Value);
+
+            if (deliverySpeedType.HasValue && deliverySpeedType.Value > 0)
+                query = query.Where(x => x.DeliverySpeedType == deliverySpeedType.Value);
+
             var orders = await query
                 .OrderByDescending(x => x.Id)
                 .Skip(skip)
@@ -519,11 +607,20 @@ namespace Siffrum.Ecom.BAL.Product
         }       
 
         public async Task<IntResponseRoot> GetMyOrdersCountAsync(
-           long userId)
+           long userId,
+           PlatformTypeSM? platformType = null,
+           int? deliverySpeedType = null)
         {
-            var count = await _apiDbContext.Order.AsNoTracking()
-                .Where(x => x.UserId == userId)
-                .CountAsync();
+            var query = _apiDbContext.Order.AsNoTracking()
+                .Where(x => x.UserId == userId);
+
+            if (platformType.HasValue && platformType.Value != PlatformTypeSM.None)
+                query = query.Where(x => x.PlatformType == (PlatformTypeDM)(int)platformType.Value);
+
+            if (deliverySpeedType.HasValue && deliverySpeedType.Value > 0)
+                query = query.Where(x => x.DeliverySpeedType == deliverySpeedType.Value);
+
+            var count = await query.CountAsync();
 
             return new IntResponseRoot(count, "Total Orders");
         }
@@ -670,9 +767,23 @@ namespace Siffrum.Ecom.BAL.Product
             DateTime? dateFrom,
             DateTime? dateTo,
             decimal? minAmount,
-            decimal? maxAmount)
+            decimal? maxAmount,
+            PlatformTypeSM? platformType = null,
+            long? deliveryBoyId = null)
         {
             IQueryable<OrderDM> query = _apiDbContext.Order.AsNoTracking();
+
+            // Filter by delivery boy (rider)
+            if (deliveryBoyId.HasValue && deliveryBoyId.Value > 0)
+            {
+                query = query.Where(x => _apiDbContext.Deliveries.Any(d => d.OrderId == x.Id && d.DeliveryBoyId == deliveryBoyId.Value));
+            }
+
+            if (platformType.HasValue && platformType.Value != PlatformTypeSM.None)
+            {
+                var pt = (PlatformTypeDM)(int)platformType.Value;
+                query = query.Where(x => x.OrderItems.Any(oi => oi.ProductVariant.PlatformType == pt));
+            }
 
             if (id.HasValue && id.Value > 0)
                 query = query.Where(x => x.Id == id.Value);
@@ -737,10 +848,12 @@ namespace Siffrum.Ecom.BAL.Product
             DateTime? dateTo,
             decimal? minAmount,
             decimal? maxAmount,
-            int skip, int top)
+            int skip, int top,
+            PlatformTypeSM? platformType = null,
+            long? deliveryBoyId = null)
         {
             var query = BuildAdvancedQuery(id, orderStatus, paymentStatus, paymentMode,
-                sellerId, search, dateFrom, dateTo, minAmount, maxAmount);
+                sellerId, search, dateFrom, dateTo, minAmount, maxAmount, platformType, deliveryBoyId);
 
             var orders = await query
                 .OrderByDescending(x => x.CreatedAt)
@@ -767,10 +880,12 @@ namespace Siffrum.Ecom.BAL.Product
             DateTime? dateFrom,
             DateTime? dateTo,
             decimal? minAmount,
-            decimal? maxAmount)
+            decimal? maxAmount,
+            PlatformTypeSM? platformType = null,
+            long? deliveryBoyId = null)
         {
             var query = BuildAdvancedQuery(id, orderStatus, paymentStatus, paymentMode,
-                sellerId, search, dateFrom, dateTo, minAmount, maxAmount);
+                sellerId, search, dateFrom, dateTo, minAmount, maxAmount, platformType, deliveryBoyId);
 
             var count = await query.CountAsync();
             return new IntResponseRoot(count, "Total Count");
@@ -1161,6 +1276,115 @@ namespace Siffrum.Ecom.BAL.Product
             return new BoolResponseRoot(true, "Payment status updated");
         }
 
+        public async Task<BoolResponseRoot> SellerMarkOrderPaidAsync(long orderId, long sellerId)
+        {
+            var order = await _apiDbContext.Order
+                .FirstOrDefaultAsync(x => x.Id == orderId && x.SellerId == sellerId);
+
+            if (order == null)
+                throw new SiffrumException(
+                    ApiErrorTypeSM.InvalidInputData_NoLog,
+                    "Order not found or does not belong to this seller");
+
+            if (order.PaymentStatus == PaymentStatusDM.Paid)
+                return new BoolResponseRoot(true, "Payment is already marked as Paid");
+
+            // Allow marking as paid from Pending, Failed, or Flagged statuses
+            // This enables payment reconciliation when webhook failed but payment was actually received
+            var allowedStatuses = new[] { PaymentStatusDM.Pending, PaymentStatusDM.Failed, PaymentStatusDM.Flagged };
+            if (!allowedStatuses.Contains(order.PaymentStatus))
+                throw new SiffrumException(
+                    ApiErrorTypeSM.InvalidInputData_NoLog,
+                    $"Cannot mark as paid from status: {order.PaymentStatus}. Only Pending, Failed, or Flagged orders can be reconciled.");
+
+            await using var transaction = await _apiDbContext.Database.BeginTransactionAsync();
+
+            try
+            {
+                // Update order payment status
+                order.PaymentStatus = PaymentStatusDM.Paid;
+                order.PaidAmount = order.Amount;
+                order.DueAmount = 0;
+                order.OrderStatus = OrderStatusDM.Processing; // Move from AwaitingPayment to Processing
+                order.UpdatedAt = DateTime.UtcNow;
+                order.UpdatedBy = _loginUserDetail.LoginId;
+
+                // Update invoice payment status (RECONCILIATION)
+                var invoice = await _apiDbContext.Invoice
+                    .FirstOrDefaultAsync(i => i.OrderId == order.Id);
+
+                if (invoice != null)
+                {
+                    invoice.PaymentStatus = PaymentStatusDM.Paid;
+                    invoice.OrderStatus = OrderStatusDM.Processing;
+                    invoice.UpdatedAt = DateTime.UtcNow;
+                }
+
+                // Deduct stock if not already deducted (for online payments that failed webhook)
+                if (order.PaymentMode == PaymentModeDM.Online)
+                {
+                    var orderItems = await _apiDbContext.OrderItem
+                        .Where(oi => oi.OrderId == order.Id)
+                        .ToListAsync();
+
+                    var variantIds = orderItems.Select(oi => oi.ProductVariantId).Distinct().ToList();
+                    var variants = await _apiDbContext.ProductVariant
+                        .Where(v => variantIds.Contains(v.Id))
+                        .ToDictionaryAsync(v => v.Id);
+
+                    foreach (var item in orderItems)
+                    {
+                        if (variants.TryGetValue(item.ProductVariantId, out var variant) && variant.Stock.HasValue)
+                        {
+                            variant.Stock -= item.Quantity;
+                            variant.UpdatedAt = DateTime.UtcNow;
+                        }
+                    }
+                }
+
+                await _apiDbContext.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                // Send notification to user that payment was confirmed
+                try
+                {
+                    var user = await _apiDbContext.User.FindAsync(order.UserId);
+                    if (user != null && !string.IsNullOrEmpty(user.FcmId))
+                    {
+                        await _notificationProcess.SendPushNotificationToUser(
+                            new SendNotificationMessageSM
+                            {
+                                Title = "Payment Confirmed",
+                                Message = $"Your payment for order #{order.OrderNumber} has been confirmed by the seller. Your order is now being processed.",
+                                AdditionalData = new Dictionary<string, string>
+                                {
+                                    { "orderId", order.Id.ToString() },
+                                    { "paymentConfirmed", "true" },
+                                    { "refreshOrders", "true" }
+                                }
+                            }, user.FcmId);
+                    }
+                    
+                    // In-app notification as backup
+                    await _inAppNotificationProcess.NotifyUser(order.UserId,
+                        "Payment Confirmed",
+                        $"Your payment for order #{order.OrderNumber} has been confirmed by the seller.",
+                        "payment_confirmed", order.Id.ToString());
+                }
+                catch { /* Don't fail reconciliation if notification fails */ }
+
+                return new BoolResponseRoot(true, "Payment marked as Paid. Order is now in Processing status.");
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                throw new SiffrumException(
+                    ApiErrorTypeSM.Fatal_Log,
+                    $"Failed to reconcile payment for order {orderId}: {ex.Message}",
+                    "Failed to update payment status. Please try again or contact support.");
+            }
+        }
+
         #endregion
 
         #region USER - CANCEL
@@ -1332,6 +1556,11 @@ namespace Siffrum.Ecom.BAL.Product
             var sm = _mapper.Map<OrderSM>(dm);
             sm.CustomerName = displayName;
 
+            // Item count for list UI
+            sm.ItemCount = await _apiDbContext.OrderItem
+                .AsNoTracking()
+                .CountAsync(oi => oi.OrderId == dm.Id);
+
             // Fetch delivery record for this order (used for both prep status and delivery boy info)
             var delivery = await _apiDbContext.Deliveries
                 .AsNoTracking()
@@ -1393,7 +1622,7 @@ namespace Siffrum.Ecom.BAL.Product
                 : !string.IsNullOrWhiteSpace(user?.Username)
                     ? user.Username
                     : user?.Mobile;
-            var variant = await _apiDbContext.ProductVariant.AsNoTracking().Include(v => v.Images).Where(x=>x.Id == dm.ProductVariantId).FirstOrDefaultAsync();
+            var variant = await _apiDbContext.ProductVariant.AsNoTracking().Include(v => v.Product).Include(v => v.Images).Where(x=>x.Id == dm.ProductVariantId).FirstOrDefaultAsync();
             var sm = _mapper.Map<OrderItemSM>(dm);
             var imgPath = !string.IsNullOrEmpty(variant?.Image)
                 ? variant.Image
@@ -1407,7 +1636,8 @@ namespace Siffrum.Ecom.BAL.Product
                 sm.NetworkProductImage = oImg.NetworkUrl;
             }
             sm.CustomerName = displayName;
-            sm.ProductName = variant?.Name;
+            sm.ProductName = variant?.Product?.Name ?? variant?.Name;
+            sm.UnitLabel = variant?.Name;
             sm.OrderStatus = (OrderStatusSM)order.OrderStatus;
             sm.PaymentStatus = (PaymentStatusSM)order.PaymentStatus;
             sm.PaymentMode = (PaymentModeSM)order.PaymentMode;
@@ -1772,6 +2002,15 @@ namespace Siffrum.Ecom.BAL.Product
                 });
             }
 
+            // Get promo code if applied
+            string? promoCode = null;
+            if (order.PromoCodeId.HasValue && order.PromoCodeId.Value > 0)
+            {
+                var promo = await _apiDbContext.PromoCodes.AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.Id == order.PromoCodeId.Value);
+                promoCode = promo?.Code;
+            }
+
             return new OrderInvoiceSM
             {
                 InvoiceNumber = $"INV-{order.OrderNumber}",
@@ -1788,8 +2027,14 @@ namespace Siffrum.Ecom.BAL.Product
                 CutleryCharge = order.CutlaryCharge,
                 GiftWrapCharge = order.GiftWrapCharge,
                 LowCartFeeCharge = order.LowCartFeeCharge,
+                SurgeCharge = order.SurgeCharge,
+                TaxAmount = order.TaxAmount,
+                DiscountAmount = order.DiscountAmount,
+                PromoCode = promoCode,
                 TipAmount = order.TipAmount,
                 TotalAmount = order.Amount,
+                PaidAmount = order.PaidAmount,
+                DueAmount = order.DueAmount,
                 Currency = order.Currency,
                 PaymentMode = ((PaymentModeSM)order.PaymentMode).ToString(),
                 PaymentStatus = ((PaymentStatusSM)order.PaymentStatus).ToString(),
@@ -1863,7 +2108,7 @@ namespace Siffrum.Ecom.BAL.Product
 
             var baseItems = _apiDbContext.OrderItem
                 .Where(x =>
-                    x.ProductVariant.Product.SellerId == sellerId &&
+                    x.Order.SellerId == sellerId &&
                     x.Order.PaymentStatus == PaymentStatusDM.Paid &&
                     x.Order.OrderStatus == OrderStatusDM.Delivered);
 
@@ -1941,10 +2186,12 @@ namespace Siffrum.Ecom.BAL.Product
             DateTime? dateTo,
             decimal? minAmount,
             decimal? maxAmount,
-            long? forceSellerId = null)
+            long? forceSellerId = null,
+            PlatformTypeSM? platformType = null,
+            long? deliveryBoyId = null)
         {
             var query = BuildAdvancedQuery(id, orderStatus, paymentStatus, paymentMode,
-                sellerId ?? forceSellerId, search, dateFrom, dateTo, minAmount, maxAmount);
+                sellerId ?? forceSellerId, search, dateFrom, dateTo, minAmount, maxAmount, platformType, deliveryBoyId);
 
             var orders = await query
                 .OrderByDescending(x => x.CreatedAt)
@@ -2110,5 +2357,89 @@ namespace Siffrum.Ecom.BAL.Product
         }
 
         #endregion Excel Export
+
+        #region Surge Charge Calculation
+
+        /// <summary>
+        /// Calculates surge charge based on seller settings, platform type, and delivery speed.
+        /// Priority: 
+        ///   1. New per-platform settings (hotBoxSettings / speedyMartNormalSettings / speedyMartExpressSettings)
+        ///      - Seller disabled surge → 0
+        ///      - Seller enabled + seller charge > 0 → seller's charge
+        ///      - Seller enabled + seller charge = 0 → admin's surge charge
+        ///   2. Old surgePricing block (intermediate migration)
+        ///   3. Legacy IsSurge fallback
+        /// </summary>
+        public async Task<decimal> CalculateSurgeCharge(long? sellerId, PlatformTypeDM platformType, int deliverySpeedType)
+        {
+            if (!sellerId.HasValue || sellerId.Value <= 0)
+                return 0;
+
+            var sellerSettings = await _apiDbContext.SellerSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.SellerId == sellerId.Value);
+
+            if (sellerSettings == null || string.IsNullOrEmpty(sellerSettings.JsonData))
+                return 0;
+
+            var settings = JsonSerializer.Deserialize<SellerSettingsJson>(sellerSettings.JsonData, _jsonOptions);
+            if (settings == null)
+                return 0;
+
+            // ── 1. New per-platform settings ─────────────────────────────────────
+            if (platformType == PlatformTypeDM.HotBox && settings.HotBoxSettings != null)
+            {
+                if (!settings.HotBoxSettings.IsSurge)
+                    return 0; // Seller explicitly disabled surge
+                // Seller enabled surge — use seller's charge if set, else admin's
+                if (settings.HotBoxSettings.SurgeCharge > 0)
+                    return settings.HotBoxSettings.SurgeCharge;
+                // Fall through to admin surge below
+                return await GetAdminSurgeChargeAsync();
+            }
+
+            if (platformType == PlatformTypeDM.SpeedyMart && deliverySpeedType == 1 && settings.SpeedyMartNormalSettings != null)
+            {
+                if (!settings.SpeedyMartNormalSettings.IsSurge)
+                    return 0;
+                if (settings.SpeedyMartNormalSettings.SurgeCharge > 0)
+                    return settings.SpeedyMartNormalSettings.SurgeCharge;
+                return await GetAdminSurgeChargeAsync();
+            }
+
+            if (platformType == PlatformTypeDM.SpeedyMart && deliverySpeedType == 2 && settings.SpeedyMartExpressSettings != null)
+            {
+                if (!settings.SpeedyMartExpressSettings.IsSurge)
+                    return 0;
+                if (settings.SpeedyMartExpressSettings.SurgeCharge > 0)
+                    return settings.SpeedyMartExpressSettings.SurgeCharge;
+                return await GetAdminSurgeChargeAsync();
+            }
+
+            // ── 2. Old surgePricing block (intermediate migration) ────────────────
+            if (settings.SurgePricing != null)
+            {
+                if (platformType == PlatformTypeDM.HotBox && settings.SurgePricing.EnableForHotBox)
+                    return settings.SurgePricing.HotBoxSurgeCharge;
+                if (platformType == PlatformTypeDM.SpeedyMart && deliverySpeedType == 2 && settings.SurgePricing.EnableForSpeedyMartExpress)
+                    return settings.SurgePricing.SpeedyMartExpressSurgeCharge;
+                if (platformType == PlatformTypeDM.SpeedyMart && deliverySpeedType == 1 && settings.SurgePricing.EnableForSpeedyMartNormal)
+                    return settings.SurgePricing.SpeedyMartNormalSurgeCharge;
+            }
+
+            // ── 3. Legacy IsSurge fallback ────────────────────────────────────────
+            if (settings.IsSurge)
+                return settings.SurgeCharge;
+
+            return 0;
+        }
+
+        private async Task<decimal> GetAdminSurgeChargeAsync()
+        {
+            var adminSettings = await _settingsProcess.GetAsync();
+            return adminSettings?.SurgeCharge ?? 0;
+        }
+
+        #endregion Surge Charge Calculation
     }
 }

@@ -150,7 +150,9 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
             Roles = "User")]
         public async Task<ActionResult<ApiResponse<List<OrderSM>>>> GetMyOrders(
             int skip,
-            int top)
+            int top,
+            PlatformTypeSM? platformType = null,
+            int? deliverySpeedType = null)
         {
             var userId = User.GetUserRecordIdFromCurrentUserClaims();
             if (userId <= 0)
@@ -159,14 +161,16 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
                     DomainConstantsRoot.DisplayMessagesRoot.Display_Id_NotFound));
             }
 
-            var response = await _orderProcess.GetMyOrdersAsync(userId, skip, top);
+            var response = await _orderProcess.GetMyOrdersAsync(userId, skip, top, platformType, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
         [HttpGet("mine/count")]
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
             Roles = "User")]
-        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetMineOrdersCount()
+        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetMineOrdersCount(
+            PlatformTypeSM? platformType = null,
+            int? deliverySpeedType = null)
         {
             var userId = User.GetUserRecordIdFromCurrentUserClaims();
             if (userId <= 0)
@@ -175,7 +179,7 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
                     DomainConstantsRoot.DisplayMessagesRoot.Display_Id_NotFound));
             }
 
-            var response = await _orderProcess.GetMyOrdersCountAsync(userId);
+            var response = await _orderProcess.GetMyOrdersCountAsync(userId, platformType, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
         
@@ -382,13 +386,15 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
             DateTime? dateTo,
             decimal? minAmount,
             decimal? maxAmount,
+            PlatformTypeSM? platformType = null,
+            long? deliveryBoyId = null,
             int skip = 0,
             int top = 15)
         {
             var response = await _orderProcess.AdvancedSearchOrders(
                 id, orderStatus, paymentStatus, paymentMode,
                 sellerId, search, dateFrom, dateTo, minAmount, maxAmount,
-                skip, top);
+                skip, top, platformType, deliveryBoyId);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -405,11 +411,13 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
             DateTime? dateFrom,
             DateTime? dateTo,
             decimal? minAmount,
-            decimal? maxAmount)
+            decimal? maxAmount,
+            PlatformTypeSM? platformType = null,
+            long? deliveryBoyId = null)
         {
             var response = await _orderProcess.AdvancedSearchOrdersCount(
                 id, orderStatus, paymentStatus, paymentMode,
-                sellerId, search, dateFrom, dateTo, minAmount, maxAmount);
+                sellerId, search, dateFrom, dateTo, minAmount, maxAmount, platformType, deliveryBoyId);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -426,11 +434,14 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
             DateTime? dateFrom,
             DateTime? dateTo,
             decimal? minAmount,
-            decimal? maxAmount)
+            decimal? maxAmount,
+            PlatformTypeSM? platformType = null,
+            long? deliveryBoyId = null)
         {
             var bytes = await _orderProcess.ExportOrdersToExcel(
                 id, orderStatus, paymentStatus, paymentMode,
-                sellerId, search, dateFrom, dateTo, minAmount, maxAmount);
+                sellerId, search, dateFrom, dateTo, minAmount, maxAmount,
+                platformType: platformType, deliveryBoyId: deliveryBoyId);
             var fileName = $"Orders_{DateTime.UtcNow:yyyyMMdd_HHmmss}.xlsx";
             return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
         }

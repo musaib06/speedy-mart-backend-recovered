@@ -23,14 +23,14 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
         // Seller: Get own store hours
         [HttpGet("mine")]
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "Seller")]
-        public async Task<ActionResult<ApiResponse<List<StoreHoursSM>>>> GetMyStoreHours()
+        public async Task<ActionResult<ApiResponse<List<StoreHoursSM>>>> GetMyStoreHours([FromQuery] short platformType = 0)
         {
             var sellerId = User.GetUserRecordIdFromCurrentUserClaims();
             if (sellerId <= 0)
                 return NotFound(ModelConverter.FormNewErrorResponse(
                     DomainConstantsRoot.DisplayMessagesRoot.Display_Id_NotFound));
 
-            var result = await _storeHoursProcess.GetStoreHours(sellerId);
+            var result = await _storeHoursProcess.GetStoreHours(sellerId, platformType);
             return ModelConverter.FormNewSuccessResponse(result);
         }
 
@@ -38,7 +38,7 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
         [HttpPut("mine")]
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "Seller")]
         public async Task<ActionResult<ApiResponse<List<StoreHoursSM>>>> UpsertMyStoreHours(
-            [FromBody] ApiRequest<List<StoreHoursSM>> apiRequest)
+            [FromBody] ApiRequest<List<StoreHoursSM>> apiRequest, [FromQuery] short platformType = 0)
         {
             var sellerId = User.GetUserRecordIdFromCurrentUserClaims();
             if (sellerId <= 0)
@@ -51,25 +51,25 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
                     DomainConstantsRoot.DisplayMessagesRoot.Display_ReqDataNotFormed,
                     ApiErrorTypeSM.InvalidInputData_NoLog));
 
-            var result = await _storeHoursProcess.UpsertStoreHours(sellerId, innerReq);
+            var result = await _storeHoursProcess.UpsertStoreHours(sellerId, innerReq, platformType);
             return ModelConverter.FormNewSuccessResponse(result);
         }
 
         // User/App: Check if a store is currently open
         [HttpGet("availability/{sellerId}")]
         [AllowAnonymous]
-        public async Task<ActionResult<ApiResponse<StoreAvailabilitySM>>> CheckAvailability(long sellerId)
+        public async Task<ActionResult<ApiResponse<StoreAvailabilitySM>>> CheckAvailability(long sellerId, [FromQuery] short platformType = 0)
         {
-            var result = await _storeHoursProcess.CheckStoreAvailability(sellerId);
+            var result = await _storeHoursProcess.CheckStoreAvailability(sellerId, platformType: platformType);
             return ModelConverter.FormNewSuccessResponse(result);
         }
 
         // Admin: Get any seller's store hours
         [HttpGet("{sellerId}")]
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin,SystemAdmin")]
-        public async Task<ActionResult<ApiResponse<List<StoreHoursSM>>>> GetSellerStoreHours(long sellerId)
+        public async Task<ActionResult<ApiResponse<List<StoreHoursSM>>>> GetSellerStoreHours(long sellerId, [FromQuery] short platformType = 0)
         {
-            var result = await _storeHoursProcess.GetStoreHours(sellerId);
+            var result = await _storeHoursProcess.GetStoreHours(sellerId, platformType);
             return ModelConverter.FormNewSuccessResponse(result);
         }
     }

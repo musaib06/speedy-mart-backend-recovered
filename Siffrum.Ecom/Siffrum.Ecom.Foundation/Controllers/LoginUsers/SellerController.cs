@@ -24,9 +24,10 @@ namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
         private readonly OrderProcess _orderProcess;
         private readonly SellerDeliveryBoyProcess _sellerDeliveryBoyProcess;
         private readonly OrderDeliveryProcess _orderDeliveryProcess;
+        private readonly ProductRatingProcess _productRatingProcess;
         public SellerController(SellerProcess process, SellerDashboardProcess sellerDashboardProcess,
             OrderProcess orderProcess, SellerDeliveryBoyProcess sellerDeliveryBoyProcess,
-            OrderDeliveryProcess orderDeliveryProcess)
+            OrderDeliveryProcess orderDeliveryProcess, ProductRatingProcess productRatingProcess)
             : base(process)
         { 
             _sellerProcess = process;
@@ -34,6 +35,7 @@ namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
             _orderProcess = orderProcess;
             _sellerDeliveryBoyProcess = sellerDeliveryBoyProcess;
             _orderDeliveryProcess = orderDeliveryProcess;
+            _productRatingProcess = productRatingProcess;
         }
 
         [HttpGet]
@@ -449,26 +451,26 @@ namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
         [HttpGet("mine/seller-orders")]
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "Seller")]
         public async Task<ActionResult<ApiResponse<List<OrderSM>>>> GetMySellerOrders(
-            int skip, int top, string? status = null, DateTime? dateFrom = null, DateTime? dateTo = null, PaymentModeSM? paymentMode = null)
+            int skip, int top, string? status = null, DateTime? dateFrom = null, DateTime? dateTo = null, PaymentModeSM? paymentMode = null, PlatformTypeSM? platformType = null, string? customerPhone = null)
         {
             var sellerId = User.GetUserRecordIdFromCurrentUserClaims();
             if (sellerId <= 0)
                 return NotFound(ModelConverter.FormNewErrorResponse(DomainConstants.DisplayMessagesRoot.Display_Id_NotFound));
 
-            var response = await _orderProcess.GetSellerOrders(sellerId, skip, top, status, dateFrom, dateTo, paymentMode);
+            var response = await _orderProcess.GetSellerOrders(sellerId, skip, top, status, dateFrom, dateTo, paymentMode, platformType, customerPhone);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
         [HttpGet("mine/seller-orders/count")]
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "Seller")]
         public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetMySellerOrdersCount(
-            string? status = null, DateTime? dateFrom = null, DateTime? dateTo = null, PaymentModeSM? paymentMode = null)
+            string? status = null, DateTime? dateFrom = null, DateTime? dateTo = null, PaymentModeSM? paymentMode = null, PlatformTypeSM? platformType = null, string? customerPhone = null)
         {
             var sellerId = User.GetUserRecordIdFromCurrentUserClaims();
             if (sellerId <= 0)
                 return NotFound(ModelConverter.FormNewErrorResponse(DomainConstants.DisplayMessagesRoot.Display_Id_NotFound));
 
-            var response = await _orderProcess.GetSellerOrdersCount(sellerId, status, dateFrom, dateTo, paymentMode);
+            var response = await _orderProcess.GetSellerOrdersCount(sellerId, status, dateFrom, dateTo, paymentMode, platformType, customerPhone);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -506,6 +508,18 @@ namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
                 return NotFound(ModelConverter.FormNewErrorResponse(DomainConstants.DisplayMessagesRoot.Display_Id_NotFound));
 
             var response = await _orderProcess.SellerAcceptOrder(orderId, sellerId, preparationTimeInMinutes);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        [HttpPut("mine/order/{orderId}/mark-paid")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "Seller")]
+        public async Task<ActionResult<ApiResponse<BoolResponseRoot>>> MarkOrderPaid(long orderId)
+        {
+            var sellerId = User.GetUserRecordIdFromCurrentUserClaims();
+            if (sellerId <= 0)
+                return NotFound(ModelConverter.FormNewErrorResponse(DomainConstants.DisplayMessagesRoot.Display_Id_NotFound));
+
+            var response = await _orderProcess.SellerMarkOrderPaidAsync(orderId, sellerId);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -580,6 +594,29 @@ namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
                 return NotFound(ModelConverter.FormNewErrorResponse(DomainConstants.DisplayMessagesRoot.Display_Id_NotFound));
 
             var response = await _sellerDashboardProcess.GetLowStockItemsAsync(userId, platform);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        [HttpGet("dashboard/product-analytics")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "Seller")]
+        public async Task<ActionResult<ApiResponse<ProductAnalyticsSM>>> GetProductAnalytics(
+            DateTime? startDate = null, DateTime? endDate = null, string? period = null)
+        {
+            var userId = User.GetUserRecordIdFromCurrentUserClaims();
+            if (userId <= 0)
+                return NotFound(ModelConverter.FormNewErrorResponse(DomainConstants.DisplayMessagesRoot.Display_Id_NotFound));
+
+            var response = await _sellerDashboardProcess.GetProductAnalyticsAsync(userId, startDate, endDate, period);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        [HttpGet("admin/low-stock/items")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, 
+            Roles = "SuperAdmin, SystemAdmin")]
+        public async Task<ActionResult<ApiResponse<List<LowStockVariantSM>>>> GetAdminLowStockItems(
+            long? sellerId = null, string platform = "all")
+        {
+            var response = await _sellerDashboardProcess.GetLowStockItemsAdminAsync(sellerId, platform);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -871,6 +908,29 @@ namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
+        [HttpPost("mine/cash-adjust")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "Seller")]
+        public async Task<ActionResult<ApiResponse<CashCollectionSM>>> AdjustCashBalance(
+            [FromBody] ApiRequest<CashAdjustmentSM> apiRequest)
+        {
+            var sellerId = User.GetUserRecordIdFromCurrentUserClaims();
+            if (sellerId <= 0)
+                return NotFound(ModelConverter.FormNewErrorResponse(DomainConstants.DisplayMessagesRoot.Display_Id_NotFound));
+
+            var innerReq = apiRequest?.ReqData;
+            if (innerReq == null)
+                return BadRequest(ModelConverter.FormNewErrorResponse("Invalid request data", ApiErrorTypeSM.InvalidInputData_NoLog));
+
+            if (innerReq.AdjustmentAmount == 0)
+                return BadRequest(ModelConverter.FormNewErrorResponse("Adjustment amount cannot be zero", ApiErrorTypeSM.InvalidInputData_NoLog));
+
+            if (string.IsNullOrWhiteSpace(innerReq.Reason))
+                return BadRequest(ModelConverter.FormNewErrorResponse("Reason is required for adjustment", ApiErrorTypeSM.InvalidInputData_NoLog));
+
+            var response = await _sellerDeliveryBoyProcess.AdjustCashBalance(sellerId, innerReq);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
         #endregion
 
         #region Seller - Order Deliveries
@@ -1004,6 +1064,45 @@ namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
         public async Task<ActionResult<ApiResponse<BoolResponseRoot>>> AdminSetLocation(long sellerId, [FromQuery] decimal latitude, [FromQuery] decimal longitude)
         {
             var response = await _sellerProcess.AdminSetLocation(sellerId, latitude, longitude);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        #endregion
+
+        #region Seller Review Management
+
+        [HttpGet("mine/reviews")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "Seller")]
+        public async Task<ActionResult<ApiResponse<List<ProductRatingSM>>>> GetMyReviews(
+            int skip = 0, int top = 20, StatusSM? status = null)
+        {
+            var sellerId = User.GetUserRecordIdFromCurrentUserClaims();
+            if (sellerId <= 0)
+                return NotFound(ModelConverter.FormNewErrorResponse(DomainConstantsRoot.DisplayMessagesRoot.Display_Id_NotFound));
+            var response = await _productRatingProcess.GetSellerReviews(sellerId, skip, top, status);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        [HttpGet("mine/reviews/count")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "Seller")]
+        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetMyReviewsCount(StatusSM? status = null)
+        {
+            var sellerId = User.GetUserRecordIdFromCurrentUserClaims();
+            if (sellerId <= 0)
+                return NotFound(ModelConverter.FormNewErrorResponse(DomainConstantsRoot.DisplayMessagesRoot.Display_Id_NotFound));
+            var response = await _productRatingProcess.GetSellerReviewsCount(sellerId, status);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        [HttpPut("mine/review/{ratingId}/status")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "Seller")]
+        public async Task<ActionResult<ApiResponse<BoolResponseRoot>>> UpdateReviewStatus(
+            long ratingId, [FromQuery] StatusSM status)
+        {
+            var sellerId = User.GetUserRecordIdFromCurrentUserClaims();
+            if (sellerId <= 0)
+                return NotFound(ModelConverter.FormNewErrorResponse(DomainConstantsRoot.DisplayMessagesRoot.Display_Id_NotFound));
+            var response = await _productRatingProcess.SellerUpdateReviewStatus(ratingId, sellerId, status);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 

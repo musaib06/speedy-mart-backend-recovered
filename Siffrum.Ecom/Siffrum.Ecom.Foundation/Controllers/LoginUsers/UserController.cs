@@ -10,6 +10,7 @@ using Siffrum.Ecom.ServiceModels.Foundation.Base.Enums;
 using Siffrum.Ecom.ServiceModels.Foundation.Token;
 using Siffrum.Ecom.ServiceModels.v1;
 using Siffrum.Ecom.ServiceModels.v1.General;
+using Siffrum.Ecom.BAL.Marketing;
 
 namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
 {
@@ -18,10 +19,12 @@ namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
     public class UserController : ApiControllerWithOdataRoot<UserSM>
     {
         private readonly UserProcess _userProcess;
-        public UserController(UserProcess process)
+        private readonly BannerProcess _bannerProcess;
+        public UserController(UserProcess process, BannerProcess bannerProcess)
             : base(process)
         { 
             _userProcess = process;
+            _bannerProcess = bannerProcess;
         }
 
         [HttpGet]
@@ -41,13 +44,13 @@ namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
 
         [HttpGet("")]
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin")]
-        public async Task<ActionResult<ApiResponse<List<UserSM>>>> GetAllUsersByAdmins(int skip, int top)
+        public async Task<ActionResult<ApiResponse<List<UserSM>>>> GetAllUsersByAdmins(int skip, int top, string? mobile = null)
         {
             #region Check Request           
 
             #endregion Check Request
 
-            var response = await _userProcess.GetAll(skip, top);
+            var response = await _userProcess.GetAll(skip, top, mobile);
             if (response != null)
             {
                 return ModelConverter.FormNewSuccessResponse(response);
@@ -59,13 +62,13 @@ namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
         }
         [HttpGet("count")]
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin")]
-        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetAllUsersCount()
+        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetAllUsersCount(string? mobile = null)
         {
             #region Check Request           
 
             #endregion Check Request
 
-            var response = await _userProcess.GetAllUsersCount();
+            var response = await _userProcess.GetAllUsersCount(mobile);
             if (response != null)
             {
                 return ModelConverter.FormNewSuccessResponse(response);
@@ -620,5 +623,41 @@ namespace Siffrum.Ecom.Foundation.Controllers.LoginUsers
                 return BadRequest(ModelConverter.FormNewErrorResponse(DomainConstants.DisplayMessagesRoot.Display_PassedDataNotSaved, ApiErrorTypeSM.NoRecord_NoLog));
             }
         }
+
+        #region SpeedyMart Banners
+
+        /// <summary>
+        /// Get SpeedyMart banners filtered by delivery speed (1=Normal, 2=Express)
+        /// </summary>
+        [HttpGet("speedymart/banners")]
+        [Authorize(
+            AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
+            Roles = "SuperAdmin, SystemAdmin, User, Seller")]
+        [AllowAnonymous]
+        public async Task<ActionResult<ApiResponse<List<BannerSM>>>> GetSpeedyMartBanners(
+            [FromQuery] int deliverySpeed = 1,
+            [FromQuery] int skip = 0,
+            [FromQuery] int top = 10)
+        {
+            var response = await _bannerProcess.GetSpeedyMartBannersByDeliverySpeed(deliverySpeed, skip, top);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        /// <summary>
+        /// Get count of SpeedyMart banners by delivery speed
+        /// </summary>
+        [HttpGet("speedymart/banners/count")]
+        [Authorize(
+            AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
+            Roles = "SuperAdmin, SystemAdmin, User, Seller")]
+        [AllowAnonymous]
+        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetSpeedyMartBannersCount(
+            [FromQuery] int deliverySpeed = 1)
+        {
+            var response = await _bannerProcess.GetSpeedyMartBannersByDeliverySpeedCount(deliverySpeed);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        #endregion
     }
 }

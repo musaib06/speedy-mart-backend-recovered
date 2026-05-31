@@ -108,6 +108,13 @@ namespace Siffrum.Ecom.BAL.Product
             }
 
             dm.Status = objSM.Status == 0 ? StatusDM.Active : (StatusDM)objSM.Status;
+            
+            // Safety check: if DeliverySpeedType is 0 (invalid), default to Normal
+            if (dm.DeliverySpeedType == 0)
+            {
+                dm.DeliverySpeedType = DeliverySpeedTypeDM.Normal;
+            }
+            
             dm.CreatedAt = DateTime.UtcNow;
             dm.CreatedBy = _loginUserDetail.LoginId;
 
@@ -132,7 +139,7 @@ namespace Siffrum.Ecom.BAL.Product
         #endregion Add Parent or Base Category
 
         #region Get Parent Categories for Admin and EndUser with count     
-        public async Task<List<CategorySM>> GetParentCategoriesForAdmin(int skip, int top, PlatformTypeSM? platform = null)
+        public async Task<List<CategorySM>> GetParentCategoriesForAdmin(int skip, int top, PlatformTypeSM? platform = null, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
             var query = _apiDbContext.Category
                 .AsNoTracking()
@@ -141,13 +148,17 @@ namespace Siffrum.Ecom.BAL.Product
             {
                 query = query.Where(x => x.Platform == (PlatformTypeDM)platform.Value);
             }
+            if (deliverySpeedType.HasValue)
+            {
+                query = query.Where(x => x.DeliverySpeedType == (DeliverySpeedTypeDM)deliverySpeedType.Value);
+            }
             var dms = await query
                 .OrderByDescending(x => x.Id)
                 .Skip(skip).Take(top)
                 .ToListAsync();
             return await MapCategoriesToSM(dms);
         }
-        public async Task<IntResponseRoot> GetParentCategoriesForAdminCount(PlatformTypeSM? platform = null)
+        public async Task<IntResponseRoot> GetParentCategoriesForAdminCount(PlatformTypeSM? platform = null, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
             var query = _apiDbContext.Category
                 .AsNoTracking()
@@ -156,6 +167,10 @@ namespace Siffrum.Ecom.BAL.Product
             {
                 query = query.Where(x => x.Platform == (PlatformTypeDM)platform.Value);
             }
+            if (deliverySpeedType.HasValue)
+            {
+                query = query.Where(x => x.DeliverySpeedType == (DeliverySpeedTypeDM)deliverySpeedType.Value);
+            }
             var count = await query
                 .Select(x => x.Id)
                 .CountAsync();
@@ -163,16 +178,42 @@ namespace Siffrum.Ecom.BAL.Product
             
         }       
 
-        public async Task<List<CategorySM>> GetSubCategoriesForUser(PlatformTypeSM platform, int skip, int top)
+        public async Task<List<CategorySM>> GetAllCategoriesForDiagnostics(int skip, int top, PlatformTypeSM? platform = null)
         {
+            var query = _apiDbContext.Category
+                .AsNoTracking();
+                
+            if (platform.HasValue)
+            {
+                query = query.Where(x => x.Platform == (PlatformTypeDM)platform.Value);
+            }
             
-            var dms = await _apiDbContext.Category
+            var dms = await query
+                .OrderByDescending(x => x.Id)
+                .Skip(skip)
+                .Take(top)
+                .ToListAsync();
+                
+            return await MapCategoriesToSM(dms);
+        }
+
+        public async Task<List<CategorySM>> GetSubCategoriesForUser(PlatformTypeSM platform, int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
+        {
+            var query = _apiDbContext.Category
                 .AsNoTracking()
                 .Where(c =>
                 c.Level > 1 &&
                 c.ParentCategoryId != null &&
                 c.Platform == (PlatformTypeDM)platform && c.Status == StatusDM.Active &&
-                c.Products.Any(p => p.ProductVariants.Any(v => v.Status == ProductStatusDM.Active)))
+                c.Products.Any(p => p.ProductVariants.Any(v => v.Status == ProductStatusDM.Active)));
+
+            if (deliverySpeedType.HasValue)
+            {
+                var dst = (DeliverySpeedTypeDM)deliverySpeedType.Value;
+                query = query.Where(c => c.DeliverySpeedType == dst || c.DeliverySpeedType == DeliverySpeedTypeDM.Both);
+            }
+
+            var dms = await query
                 .OrderBy(c => c.SortOrder)
                 .Skip(skip)
                 .Take(top)
@@ -195,16 +236,23 @@ namespace Siffrum.Ecom.BAL.Product
             return await MapCategoriesToSM(dms);
         }
 
-        public async Task<List<SearchResponseSM>> GetSubCategoriesForUserAsync(PlatformTypeSM platform, int skip, int top)
+        public async Task<List<SearchResponseSM>> GetSubCategoriesForUserAsync(PlatformTypeSM platform, int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-
-            var categories = await _apiDbContext.Category
+            var query = _apiDbContext.Category
                 .AsNoTracking()
                 .Where(c =>
                 c.Level > 1 &&
                 c.ParentCategoryId != null &&
                 c.Platform == (PlatformTypeDM)platform && c.Status == StatusDM.Active &&
-                c.Products.Any(p => p.ProductVariants.Any(v => v.Status == ProductStatusDM.Active)))
+                c.Products.Any(p => p.ProductVariants.Any(v => v.Status == ProductStatusDM.Active)));
+
+            if (deliverySpeedType.HasValue)
+            {
+                var dst = (DeliverySpeedTypeDM)deliverySpeedType.Value;
+                query = query.Where(c => c.DeliverySpeedType == dst || c.DeliverySpeedType == DeliverySpeedTypeDM.Both);
+            }
+
+            var categories = await query
                 .OrderBy(c => c.SortOrder)
                 .Skip(skip)
                 .Take(top)
@@ -216,15 +264,23 @@ namespace Siffrum.Ecom.BAL.Product
                 .ToListAsync();
             return categories;            
         }
-        public async Task<IntResponseRoot> GetSubCategoriesForUserCount(PlatformTypeSM platform)
+        public async Task<IntResponseRoot> GetSubCategoriesForUserCount(PlatformTypeSM platform, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var count = await _apiDbContext.Category
+            var query = _apiDbContext.Category
                 .AsNoTracking()
                 .Where(c =>
                 c.Level > 1 &&
                 c.ParentCategoryId != null &&
                 c.Platform == (PlatformTypeDM)platform && c.Status == StatusDM.Active &&
-                c.Products.Any(p => p.ProductVariants.Any(v => v.Status == ProductStatusDM.Active)))
+                c.Products.Any(p => p.ProductVariants.Any(v => v.Status == ProductStatusDM.Active)));
+
+            if (deliverySpeedType.HasValue)
+            {
+                var dst = (DeliverySpeedTypeDM)deliverySpeedType.Value;
+                query = query.Where(c => c.DeliverySpeedType == dst || c.DeliverySpeedType == DeliverySpeedTypeDM.Both);
+            }
+
+            var count = await query
                 .Select(x => x.Id)
                 .CountAsync();
             return new IntResponseRoot(count, "Total sub level Categories");
@@ -260,9 +316,9 @@ namespace Siffrum.Ecom.BAL.Product
 
         }
 
-        public async Task<List<CategorySM>> GetParentCategoriesForEndUser(PlatformTypeSM platform, int skip, int top)
+        public async Task<List<CategorySM>> GetParentCategoriesForEndUser(PlatformTypeSM platform, int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var dms = await _apiDbContext.Category
+            var query = _apiDbContext.Category
                 .AsNoTracking()
                 .Where(parent => parent.Level == 1
                                  && parent.ParentCategoryId == null
@@ -270,16 +326,27 @@ namespace Siffrum.Ecom.BAL.Product
                                  && _apiDbContext.Category.Any(child =>
                                         child.ParentCategoryId == parent.Id
                                         && child.Platform == (PlatformTypeDM)platform
-                                        && child.Status == StatusDM.Active))
+                                        && child.Status == StatusDM.Active));
+
+            if (deliverySpeedType.HasValue)
+            {
+                var dst = (DeliverySpeedTypeDM)deliverySpeedType.Value;
+                query = query.Where(parent => _apiDbContext.Category.Any(child =>
+                    child.ParentCategoryId == parent.Id
+                    && child.Status == StatusDM.Active
+                    && (child.DeliverySpeedType == dst || child.DeliverySpeedType == DeliverySpeedTypeDM.Both)));
+            }
+
+            var dms = await query
                 .OrderBy(x => x.SortOrder)
                 .Skip(skip)
                 .Take(top)
                 .ToListAsync();
             return await MapCategoriesToSM(dms);
         }
-        public async Task<IntResponseRoot> GetParentCategoriesForEndUserCount(PlatformTypeSM platform)
+        public async Task<IntResponseRoot> GetParentCategoriesForEndUserCount(PlatformTypeSM platform, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var count = await _apiDbContext.Category
+            var query = _apiDbContext.Category
                 .AsNoTracking()
                 .Where(parent => parent.Level == 1
                                  && parent.ParentCategoryId == null
@@ -287,7 +354,18 @@ namespace Siffrum.Ecom.BAL.Product
                                  && _apiDbContext.Category.Any(child =>
                                         child.ParentCategoryId == parent.Id
                                         && child.Platform == (PlatformTypeDM)platform
-                                        && child.Status == StatusDM.Active))
+                                        && child.Status == StatusDM.Active));
+
+            if (deliverySpeedType.HasValue)
+            {
+                var dst = (DeliverySpeedTypeDM)deliverySpeedType.Value;
+                query = query.Where(parent => _apiDbContext.Category.Any(child =>
+                    child.ParentCategoryId == parent.Id
+                    && child.Status == StatusDM.Active
+                    && (child.DeliverySpeedType == dst || child.DeliverySpeedType == DeliverySpeedTypeDM.Both)));
+            }
+
+            var count = await query
                 .Select(x => x.Id)
                 .CountAsync();
             return new IntResponseRoot(count, "Total Parent Categories");
@@ -295,17 +373,23 @@ namespace Siffrum.Ecom.BAL.Product
             
         }
 
-        public async Task<List<CategorySM>> GetParentCategoriesForSeller(int skip, int top, PlatformTypeSM? platform = null, long sellerId = 0)
+        public async Task<List<CategorySM>> GetParentCategoriesForSeller(int skip, int top, PlatformTypeSM? platform = null, long sellerId = 0, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
+            // Only show categories that are assigned to this seller via CategorySellers table
             var query = _apiDbContext.Category
                 .AsNoTracking()
                 .Where(parent => parent.Level == 1
                                  && parent.ParentCategoryId == null
-                                 && (parent.Status == StatusDM.Active
-                                     || (parent.Status == StatusDM.Pending && parent.SuggestedBySellerId == sellerId)));
+                                 && parent.Status == StatusDM.Active
+                                 && _apiDbContext.CategorySellers.Any(cs => cs.CategoryId == parent.Id && cs.SellerId == sellerId));
+
             if (platform.HasValue)
             {
                 query = query.Where(x => x.Platform == (PlatformTypeDM)platform.Value);
+            }
+            if (deliverySpeedType.HasValue)
+            {
+                query = query.Where(x => x.DeliverySpeedType == (DeliverySpeedTypeDM)deliverySpeedType.Value);
             }
             var dms = await query
                 .OrderByDescending(x => x.Id)
@@ -314,17 +398,23 @@ namespace Siffrum.Ecom.BAL.Product
                 .ToListAsync();
             return await MapCategoriesToSM(dms);
         }
-        public async Task<IntResponseRoot> GetParentCategoriesForSellerCount(PlatformTypeSM? platform = null, long sellerId = 0)
+        public async Task<IntResponseRoot> GetParentCategoriesForSellerCount(PlatformTypeSM? platform = null, long sellerId = 0, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
+            // Only count categories that are assigned to this seller via CategorySellers table
             var query = _apiDbContext.Category
                 .AsNoTracking()
                 .Where(parent => parent.Level == 1
                                  && parent.ParentCategoryId == null
-                                 && (parent.Status == StatusDM.Active
-                                     || (parent.Status == StatusDM.Pending && parent.SuggestedBySellerId == sellerId)));
+                                 && parent.Status == StatusDM.Active
+                                 && _apiDbContext.CategorySellers.Any(cs => cs.CategoryId == parent.Id && cs.SellerId == sellerId));
+
             if (platform.HasValue)
             {
                 query = query.Where(x => x.Platform == (PlatformTypeDM)platform.Value);
+            }
+            if (deliverySpeedType.HasValue)
+            {
+                query = query.Where(x => x.DeliverySpeedType == (DeliverySpeedTypeDM)deliverySpeedType.Value);
             }
             var count = await query
                 .Select(x => x.Id)
@@ -379,7 +469,7 @@ namespace Siffrum.Ecom.BAL.Product
 
         #region Category Summary (optimized single query)
 
-        public async Task<List<UserCategorySummarySM>> GetCategorySummaryForUser(PlatformTypeSM platform, int skip, int top, long userId = 0)
+        public async Task<List<UserCategorySummarySM>> GetCategorySummaryForUser(PlatformTypeSM platform, int skip, int top, long userId = 0, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
             // Look up the user's assigned seller
             long? assignedSellerId = null;
@@ -405,6 +495,12 @@ namespace Siffrum.Ecom.BAL.Product
                 query = query.Where(c =>
                     _apiDbContext.CategorySellers.Any(cs =>
                         cs.CategoryId == c.Id && cs.SellerId == assignedSellerId.Value));
+            }
+
+            if (deliverySpeedType.HasValue)
+            {
+                var dst = (DeliverySpeedTypeDM)deliverySpeedType.Value;
+                query = query.Where(c => c.DeliverySpeedType == dst || c.DeliverySpeedType == DeliverySpeedTypeDM.Both);
             }
 
             var categories = await query
@@ -440,9 +536,9 @@ namespace Siffrum.Ecom.BAL.Product
 
         #region Get Products in Category
 
-        public async Task<UserSpeedyMartCategoryProductsSM> GetProductsInSpeedyMartUsingCategory(long categoryId, int skip, int top, int comboProductsCount)
+        public async Task<UserSpeedyMartCategoryProductsSM> GetProductsInSpeedyMartUsingCategory(long categoryId, int skip, int top, int comboProductsCount, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var categoryProducts = await _productVariantProcess.GetSpeedyMartProductsByCategoryId(categoryId, skip, top);
+            var categoryProducts = await _productVariantProcess.GetSpeedyMartProductsByCategoryId(categoryId, skip, top, deliverySpeedType);
             var comboProducts = await _comboProcess.GetComboProductsInCategory(categoryId, PlatformTypeSM.SpeedyMart, comboProductsCount);
             var response = new UserSpeedyMartCategoryProductsSM()
             {
@@ -453,9 +549,9 @@ namespace Siffrum.Ecom.BAL.Product
             return response;
         }
 
-        public async Task<IntResponseRoot> GetProductsInSpeedyMartUsingCategoryCount(long categoryId)
+        public async Task<IntResponseRoot> GetProductsInSpeedyMartUsingCategoryCount(long categoryId, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var categoryProductsCount = await _productVariantProcess.GetSpeedyMartProductsByCategoryIdCount(categoryId);
+            var categoryProductsCount = await _productVariantProcess.GetSpeedyMartProductsByCategoryIdCount(categoryId, deliverySpeedType);
             return categoryProductsCount;
         }
         public async Task<UserHotBoxCategoryProductsSM> GetProductsInHotBoxUsingCategory(long categoryId, int skip, int top, int comboProductsCount)
@@ -673,7 +769,7 @@ namespace Siffrum.Ecom.BAL.Product
             return new IntResponseRoot(count, "Total Sub Categories");
         }
 
-        public async Task<List<CategorySM>> GetSubCategoriesForEndUserByParentCategory(long parentCategoryId, PlatformTypeSM platform, int skip, int top)
+        public async Task<List<CategorySM>> GetSubCategoriesForEndUserByParentCategory(long parentCategoryId, PlatformTypeSM platform, int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
             var parentExists = await _apiDbContext.Category
                 .AnyAsync(x => x.Id == parentCategoryId);
@@ -684,14 +780,22 @@ namespace Siffrum.Ecom.BAL.Product
 
             }
 
-            var dms = await _apiDbContext.Category
+            var query = _apiDbContext.Category
                 .AsNoTracking()
-                .OrderBy(x => x.SortOrder)
                 .Where(x =>
                     x.ParentCategoryId == parentCategoryId &&
                     x.Status == StatusDM.Active &&
                     x.Platform == (PlatformTypeDM)platform &&
-                    x.Products.Any(p => p.ProductVariants.Any(v => v.Status == ProductStatusDM.Active)))
+                    x.Products.Any(p => p.ProductVariants.Any(v => v.Status == ProductStatusDM.Active)));
+
+            if (deliverySpeedType.HasValue)
+            {
+                var dst = (DeliverySpeedTypeDM)deliverySpeedType.Value;
+                query = query.Where(c => c.DeliverySpeedType == dst || c.DeliverySpeedType == DeliverySpeedTypeDM.Both);
+            }
+
+            var dms = await query
+                .OrderBy(x => x.SortOrder)
                 .Skip(skip)
                 .Take(top)
                 .ToListAsync();
@@ -700,7 +804,7 @@ namespace Siffrum.Ecom.BAL.Product
 
         
 
-        public async Task<IntResponseRoot> GetSubCategoriesForEndUserCount(long parentCategoryId, PlatformTypeSM platform)
+        public async Task<IntResponseRoot> GetSubCategoriesForEndUserCount(long parentCategoryId, PlatformTypeSM platform, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
             var parentExists = await _apiDbContext.Category
                 .AnyAsync(x => x.Id == parentCategoryId);
@@ -711,14 +815,20 @@ namespace Siffrum.Ecom.BAL.Product
 
             }
 
-            var count = await _apiDbContext.Category
+            var query = _apiDbContext.Category
                 .AsNoTracking()
-                .OrderBy(x => x.SortOrder)
                 .Where(x =>
                 x.ParentCategoryId == parentCategoryId &&
                 x.Status == StatusDM.Active && x.Platform == (PlatformTypeDM)platform &&
-                 x.Products.Any(p => p.ProductVariants.Any(v => v.Status == ProductStatusDM.Active)))
-                .CountAsync();
+                 x.Products.Any(p => p.ProductVariants.Any(v => v.Status == ProductStatusDM.Active)));
+
+            if (deliverySpeedType.HasValue)
+            {
+                var dst = (DeliverySpeedTypeDM)deliverySpeedType.Value;
+                query = query.Where(c => c.DeliverySpeedType == dst || c.DeliverySpeedType == DeliverySpeedTypeDM.Both);
+            }
+
+            var count = await query.CountAsync();
            
             return new IntResponseRoot(count, "Total Sub Categories");
         }
@@ -908,6 +1018,7 @@ namespace Siffrum.Ecom.BAL.Product
             var existingSortOrder = dm.SortOrder;
             var existingIsSystem = dm.IsSystem;
             var existingSuggestedBySellerId = dm.SuggestedBySellerId;
+            var existingDeliverySpeedType = dm.DeliverySpeedType;
             
             _mapper.Map(objSM, dm);
 
@@ -919,6 +1030,13 @@ namespace Siffrum.Ecom.BAL.Product
             dm.SortOrder = existingSortOrder;
             dm.IsSystem = existingIsSystem;
             dm.SuggestedBySellerId = existingSuggestedBySellerId;
+            dm.DeliverySpeedType = existingDeliverySpeedType;
+            
+            // Safety check: if DeliverySpeedType is 0 (invalid), default to Normal
+            if (dm.DeliverySpeedType == 0)
+            {
+                dm.DeliverySpeedType = DeliverySpeedTypeDM.Normal;
+            }
 
             if (!string.IsNullOrEmpty(objSM.ImageBase64))
             {
@@ -1116,6 +1234,24 @@ namespace Siffrum.Ecom.BAL.Product
         }
 
         #endregion SELLER SUGGEST
+
+        #region PATCH DELIVERY SPEED
+
+        public async Task<BoolResponseRoot> PatchDeliverySpeedTypeAsync(long id, DeliverySpeedTypeSM deliverySpeedType)
+        {
+            var dm = await _apiDbContext.Category.FirstOrDefaultAsync(x => x.Id == id);
+            if (dm == null)
+                throw new SiffrumException(ApiErrorTypeSM.InvalidInputData_NoLog, "Category not found");
+
+            dm.DeliverySpeedType = (DeliverySpeedTypeDM)deliverySpeedType;
+            dm.UpdatedAt = DateTime.UtcNow;
+            dm.UpdatedBy = _loginUserDetail.LoginId;
+
+            await _apiDbContext.SaveChangesAsync();
+            return new BoolResponseRoot(true, $"Category delivery speed type updated to {deliverySpeedType}");
+        }
+
+        #endregion PATCH DELIVERY SPEED
 
         #region Batch Helpers
         private async Task<List<CategorySM>> MapCategoriesToSM(List<CategoryDM> dms)

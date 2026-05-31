@@ -88,6 +88,32 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Marketing
 
         #endregion Get All and Count
 
+        #region GET ALL BY PLATFORM
+
+        [HttpGet("platform")]
+        [Authorize(
+            AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
+            Roles = "SuperAdmin, SystemAdmin, User")]
+        public async Task<ActionResult<ApiResponse<List<OffersAndCouponsSM>>>> GetAllByPlatform(
+            PlatformTypeSM platformType, int skip, int top)
+        {
+            var response = await _offerProcess.GetAllByPlatform(platformType, skip, top);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        [HttpGet("platform/count")]
+        [Authorize(
+            AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
+            Roles = "SuperAdmin, SystemAdmin, User")]
+        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetAllByPlatformCount(
+            PlatformTypeSM platformType)
+        {
+            var response = await _offerProcess.GetCountByPlatform(platformType);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        #endregion
+
         #region READ BY ID
 
         [HttpGet("{id}")]

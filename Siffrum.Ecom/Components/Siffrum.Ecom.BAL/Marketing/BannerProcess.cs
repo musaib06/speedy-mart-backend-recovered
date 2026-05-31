@@ -187,6 +187,57 @@ namespace Siffrum.Ecom.BAL.Marketing
             return new IntResponseRoot(count, "Total Product Banners");
         }
 
+        /// <summary>
+        /// Get SpeedyMart banners filtered by delivery speed (Normal=1, Express=2)
+        /// </summary>
+        public async Task<List<BannerSM>> GetSpeedyMartBannersByDeliverySpeed(int deliverySpeed, int skip, int top)
+        {
+            var query = _apiDbContext.Banners
+                .AsNoTracking()
+                .Where(x => x.PlatformType == PlatformTypeDM.SpeedyMart);
+
+            // Filter by delivery speed: 1=Normal, 2=Express
+            if (deliverySpeed == 1)
+            {
+                query = query.Where(x => x.IsNormal);
+            }
+            else if (deliverySpeed == 2)
+            {
+                query = query.Where(x => x.IsExpress);
+            }
+
+            var dms = await query
+                .OrderBy(x => x.Priority)
+                .Skip(skip)
+                .Take(top)
+                .ToListAsync();
+
+            return await MapBannersToSM(dms);
+        }
+
+        /// <summary>
+        /// Get count of SpeedyMart banners by delivery speed
+        /// </summary>
+        public async Task<IntResponseRoot> GetSpeedyMartBannersByDeliverySpeedCount(int deliverySpeed)
+        {
+            var query = _apiDbContext.Banners
+                .AsNoTracking()
+                .Where(x => x.PlatformType == PlatformTypeDM.SpeedyMart);
+
+            // Filter by delivery speed: 1=Normal, 2=Express
+            if (deliverySpeed == 1)
+            {
+                query = query.Where(x => x.IsNormal);
+            }
+            else if (deliverySpeed == 2)
+            {
+                query = query.Where(x => x.IsExpress);
+            }
+
+            var count = await query.CountAsync();
+            return new IntResponseRoot(count, "Total SpeedyMart Banners");
+        }
+
         #endregion
 
         #region UPDATE

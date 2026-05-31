@@ -1126,6 +1126,125 @@ namespace Siffrum.Ecom.BAL.Product
 
         #endregion
 
+        #region Admin Live Tracking
+
+        /// <summary>
+        /// Get all active delivery boys with their current location and assigned order details
+        /// </summary>
+        public async Task<List<DeliveryBoyLiveLocationSM>> GetActiveDeliveryBoysWithLocation()
+        {
+            // Get all active delivery boys
+            var activeBoys = await _apiDbContext.DeliveryBoy
+                .AsNoTracking()
+                .Where(x => x.Status == DeliveryBoyStatusDM.Active && x.IsAvailable == 0) // 0 = busy with delivery (false)
+                .ToListAsync();
+
+            var result = new List<DeliveryBoyLiveLocationSM>();
+
+            foreach (var boy in activeBoys)
+            {
+                // Get their latest delivery
+                var latestDelivery = await _apiDbContext.Deliveries
+                    .AsNoTracking()
+                    .Where(x => x.DeliveryBoyId == boy.Id && 
+                               x.Status != DeliveryStatusDM.Delivered && 
+                               x.Status != DeliveryStatusDM.Cancelled)
+                    .OrderByDescending(x => x.AssignedAt)
+                    .FirstOrDefaultAsync();
+
+                if (latestDelivery == null) continue;
+
+                // Get latest location
+                var latestLocation = await _apiDbContext.DeliveryTracking
+                    .AsNoTracking()
+                    .Where(x => x.DeliveryId == latestDelivery.Id)
+                    .OrderByDescending(x => x.CreatedAt)
+                    .FirstOrDefaultAsync();
+
+                // Get order details
+                var order = await _apiDbContext.Order
+                    .AsNoTracking()
+                    .Where(x => x.Id == latestDelivery.OrderId)
+                    .Select(x => new { x.Id, x.OrderNumber, x.OrderStatus, x.Amount, x.UserId, x.SellerId })
+                    .FirstOrDefaultAsync();
+
+                if (order == null) continue;
+
+                // Get customer info
+                var customer = await _apiDbContext.User
+                    .AsNoTracking()
+                    .Where(x => x.Id == order.UserId)
+                    .Select(x => new { x.Name, x.Mobile })
+                    .FirstOrDefaultAsync();
+
+                // Get seller info
+                var sellerId = order.SellerId;
+                var seller = sellerId.HasValue 
+                    ? await _apiDbContext.Seller
+                        .AsNoTracking()
+                        .Where(x => x.Id == sellerId.Value)
+                        .Select(x => new { x.Name, x.StoreName })
+                        .FirstOrDefaultAsync()
+                    : null;
+
+                result.Add(new DeliveryBoyLiveLocationSM
+                {
+                    DeliveryBoyId = boy.Id,
+                    DeliveryBoyName = boy.Name,
+                    DeliveryBoyMobile = boy.Mobile,
+                    DeliveryBoyImage = null, // DeliveryBoyDM doesn't have ProfileImage
+                    
+                    DeliveryId = latestDelivery.Id,
+                    OrderId = order.Id,
+                    OrderNumber = order.OrderNumber,
+                    OrderStatus = order.OrderStatus.ToString(),
+                    OrderAmount = order.Amount,
+                    
+                    CustomerName = customer?.Name ?? "Unknown",
+                    CustomerMobile = customer?.Mobile,
+                    
+                    SellerName = seller?.StoreName ?? seller?.Name ?? "Unknown",
+                    
+                    CurrentLat = latestLocation?.CurrentLat ?? 0,
+                    CurrentLong = latestLocation?.CurrentLong ?? 0,
+                    LastUpdated = latestLocation?.CreatedAt ?? latestDelivery.AssignedAt,
+                    
+                    IsOnline = latestLocation != null && 
+                              latestLocation.CreatedAt.HasValue && 
+                              (DateTime.UtcNow - latestLocation.CreatedAt.Value).TotalMinutes < 5
+                });
+            }
+
+            return result.OrderByDescending(x => x.IsOnline).ThenBy(x => x.LastUpdated).ToList();
+        }
+
+        /// <summary>
+        /// Get all available (idle) delivery boys for assignment
+        /// </summary>
+        public async Task<List<DeliveryBoyLiveLocationSM>> GetAvailableDeliveryBoys()
+        {
+            var availableBoys = await _apiDbContext.DeliveryBoy
+                .AsNoTracking()
+                .Where(x => x.Status == DeliveryBoyStatusDM.Active && x.IsAvailable == 1) // 1 = available (true)
+                .Select(x => new DeliveryBoyLiveLocationSM
+                {
+                    DeliveryBoyId = x.Id,
+                    DeliveryBoyName = x.Name,
+                    DeliveryBoyMobile = x.Mobile,
+                    DeliveryBoyImage = null, // DeliveryBoyDM doesn't have ProfileImage
+                    CurrentLat = 0, // No stored location for idle boys
+                    CurrentLong = 0,
+                    IsOnline = x.UpdatedAt.HasValue && (DateTime.UtcNow - x.UpdatedAt.Value).TotalMinutes < 10,
+                    LastUpdated = x.UpdatedAt,
+                    OrderStatus = "Available"
+                })
+                .ToListAsync();
+
+            return availableBoys.OrderByDescending(x => x.IsOnline).ToList();
+        }
+
+        #endregion
+
         #region Delivery Boy Orders
 
         public async Task<List<DeliverySM>> GetDeliveryBoyOrders(long deliveryBoyId, DeliveryBoyOrderRequestSM sm, int skip, int top)

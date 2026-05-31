@@ -542,6 +542,129 @@ namespace Siffrum.Ecom.DAL.Migrations
                     b.ToTable("cash_collections");
                 });
 
+            modelBuilder.Entity("Siffrum.Ecom.DomainModels.v1.CategoryAttrDimensionDM", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CategoryId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("category_id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("display_order");
+
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_required");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("ValuesJson")
+                        .HasColumnType("text")
+                        .HasColumnName("values_json");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CategoryId");
+
+                    b.ToTable("category_attr_dimensions");
+                });
+
+            modelBuilder.Entity("Siffrum.Ecom.DomainModels.v1.InventoryTransactionDM", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ChangeType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("change_type");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("created_by");
+
+                    b.Property<decimal>("Delta")
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("delta");
+
+                    b.Property<string?>("Note")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("note");
+
+                    b.Property<long?>("ReferenceId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reference_id");
+
+                    b.Property<decimal?>("QuantityBefore")
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("quantity_before");
+
+                    b.Property<decimal?>("QuantityAfter")
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("quantity_after");
+
+                    b.Property<long?>("SellerId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("seller_id");
+
+                    b.Property<long>("ProductVariantId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("product_variant_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string?>("UpdatedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductVariantId");
+                    b.HasIndex("SellerId");
+                    b.HasIndex("CreatedAt");
+
+                    b.ToTable("inventory_transactions");
+                });
+
             modelBuilder.Entity("Siffrum.Ecom.DomainModels.v1.CategoryDM", b =>
                 {
                     b.Property<long>("Id")
@@ -623,6 +746,10 @@ namespace Siffrum.Ecom.DAL.Migrations
                     b.Property<long?>("SuggestedBySellerId")
                         .HasColumnType("bigint")
                         .HasColumnName("suggested_by_seller_id");
+
+                    b.Property<int>("DeliverySpeedType")
+                        .HasColumnType("integer")
+                        .HasColumnName("delivery_speed_type");
 
                     b.Property<int?>("Timings")
                         .HasColumnType("integer")
@@ -720,12 +847,82 @@ namespace Siffrum.Ecom.DAL.Migrations
                     b.ToTable("category_specifications");
                 });
 
+            modelBuilder.Entity("Siffrum.Ecom.DomainModels.v1.CategorySpecTemplateDM", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CategoryId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("category_id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("display_order");
+
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_required");
+
+                    b.Property<string>("Placeholder")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("placeholder");
+
+                    b.Property<string>("SpecGroup")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("spec_group");
+
+                    b.Property<string>("SpecKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("spec_key");
+
+                    b.Property<string>("SpecLabel")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("spec_label");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CategoryId");
+
+                    b.ToTable("category_spec_templates");
+                });
+
             modelBuilder.Entity("Siffrum.Ecom.DomainModels.v1.ComboCategoryDM", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint")
-                        .HasColumnName("Id");
+                        .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
@@ -3433,6 +3630,10 @@ namespace Siffrum.Ecom.DAL.Migrations
                         .HasColumnType("interval")
                         .HasColumnName("open_time");
 
+                    b.Property<short>("PlatformType")
+                        .HasColumnType("smallint")
+                        .HasColumnName("platform_type");
+
                     b.Property<long>("SellerId")
                         .HasColumnType("bigint")
                         .HasColumnName("seller_id");
@@ -3447,7 +3648,7 @@ namespace Siffrum.Ecom.DAL.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("SellerId", "DayOfWeek")
+                    b.HasIndex("SellerId", "DayOfWeek", "PlatformType")
                         .IsUnique();
 
                     b.ToTable("store_hours");

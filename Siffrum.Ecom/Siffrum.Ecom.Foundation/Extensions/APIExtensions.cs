@@ -7,6 +7,7 @@ using Siffrum.Ecom.BAL.Foundation;
 using Siffrum.Ecom.BAL.Foundation.Base;
 using Siffrum.Ecom.BAL.Foundation.Config;
 using Siffrum.Ecom.BAL.Foundation.Web;
+using Siffrum.Ecom.BAL.Base;
 using Siffrum.Ecom.Config.Configuration;
 using Siffrum.Ecom.Foundation.AutoMapperBindings;
 using Siffrum.Ecom.Foundation.Foundation.Web.Security;
@@ -109,6 +110,8 @@ namespace Siffrum.Ecom.Foundation.Extensions
             });*/
             services.AddHttpClient();
 
+            // Register ActivityLogger for dependency injection
+            services.AddScoped<ActivityLogger>();
 
             #endregion AutoRegister All Process
 

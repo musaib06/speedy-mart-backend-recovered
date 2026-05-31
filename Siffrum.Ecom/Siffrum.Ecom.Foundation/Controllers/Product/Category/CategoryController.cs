@@ -66,9 +66,9 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Category
             AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
             Roles = "SuperAdmin, SystemAdmin")]
         public async Task<ActionResult<ApiResponse<List<CategorySM>>>> GetParentCategoriesForAdmin(
-            int skip, int top, PlatformTypeSM? platform = null)
+            int skip, int top, PlatformTypeSM? platform = null, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _categoryProcess.GetParentCategoriesForAdmin(skip, top, platform);
+            var response = await _categoryProcess.GetParentCategoriesForAdmin(skip, top, platform, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -76,9 +76,20 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Category
         [Authorize(
             AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
             Roles = "SuperAdmin, SystemAdmin")]
-        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetParentCategoriesForAdminCount(PlatformTypeSM? platform = null)
+        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetParentCategoriesForAdminCount(PlatformTypeSM? platform = null, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _categoryProcess.GetParentCategoriesForAdminCount(platform);
+            var response = await _categoryProcess.GetParentCategoriesForAdminCount(platform, deliverySpeedType);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        [HttpGet("all/admin")]
+        [Authorize(
+            AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
+            Roles = "SuperAdmin, SystemAdmin")]
+        public async Task<ActionResult<ApiResponse<List<CategorySM>>>> GetAllCategoriesForDiagnostics(
+            int skip, int top, PlatformTypeSM? platform = null)
+        {
+            var response = await _categoryProcess.GetAllCategoriesForDiagnostics(skip, top, platform);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -130,9 +141,9 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Category
            AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
            Roles = "User")]
         public async Task<ActionResult<ApiResponse<List<CategorySM>>>> GetParentCategoriesForEndUser(PlatformTypeSM platform,
-           int skip, int top)
+           int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _categoryProcess.GetParentCategoriesForEndUser(platform, skip, top);
+            var response = await _categoryProcess.GetParentCategoriesForEndUser(platform, skip, top, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -140,9 +151,9 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Category
         [Authorize(
             AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
             Roles = "User")]
-        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetParentCategoriesForEndUserCount(PlatformTypeSM platform)
+        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetParentCategoriesForEndUserCount(PlatformTypeSM platform, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _categoryProcess.GetParentCategoriesForEndUserCount(platform);
+            var response = await _categoryProcess.GetParentCategoriesForEndUserCount(platform, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }        
 
@@ -151,9 +162,9 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Category
             AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
             Roles = "User")]
         public async Task<ActionResult<ApiResponse<List<CategorySM>>>> GetSubCategoriesForEndUser(
-            long parentCategoryId, PlatformTypeSM platform, int skip, int top)
+            long parentCategoryId, PlatformTypeSM platform, int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _categoryProcess.GetSubCategoriesForEndUserByParentCategory(parentCategoryId, platform, skip, top);
+            var response = await _categoryProcess.GetSubCategoriesForEndUserByParentCategory(parentCategoryId, platform, skip, top, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -162,9 +173,9 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Category
             AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
             Roles = "User")]
         public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetSubCategoriesForEndUserCount(
-            long parentCategoryId, PlatformTypeSM platform)
+            long parentCategoryId, PlatformTypeSM platform, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _categoryProcess.GetSubCategoriesForEndUserCount(parentCategoryId, platform);
+            var response = await _categoryProcess.GetSubCategoriesForEndUserCount(parentCategoryId, platform, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -173,9 +184,9 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Category
             AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
             Roles = "User")]
         public async Task<ActionResult<ApiResponse<List<CategorySM>>>> GetAllSubCategoriesForUser(
-            PlatformTypeSM platform, int skip, int top)
+            PlatformTypeSM platform, int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _categoryProcess.GetSubCategoriesForUser(platform, skip, top);
+            var response = await _categoryProcess.GetSubCategoriesForUser(platform, skip, top, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -184,10 +195,10 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Category
             AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
             Roles = "User")]
         public async Task<ActionResult<ApiResponse<List<UserCategorySummarySM>>>> GetCategorySummaryForUser(
-            PlatformTypeSM platform, int skip = 0, int top = 50)
+            PlatformTypeSM platform, int skip = 0, int top = 50, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
             var userId = User.GetUserRecordIdFromCurrentUserClaims();
-            var response = await _categoryProcess.GetCategorySummaryForUser(platform, skip, top, userId);
+            var response = await _categoryProcess.GetCategorySummaryForUser(platform, skip, top, userId, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
         [HttpGet("sub/user/more-on-hot-box")]
@@ -206,9 +217,9 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Category
             AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
             Roles = "User")]
         public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetAllSubCategoriesForUserCountAsync(
-            PlatformTypeSM platform)
+            PlatformTypeSM platform, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _categoryProcess.GetSubCategoriesForUserCount(platform);
+            var response = await _categoryProcess.GetSubCategoriesForUserCount(platform, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -217,9 +228,9 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Category
             AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
             Roles = "User")]
         public async Task<ActionResult<ApiResponse<List<SearchResponseSM>>>> GetAllSubCategoriesForUserAsync(
-            PlatformTypeSM platform, int skip, int top)
+            PlatformTypeSM platform, int skip, int top, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _categoryProcess.GetSubCategoriesForUserAsync(platform, skip, top);
+            var response = await _categoryProcess.GetSubCategoriesForUserAsync(platform, skip, top, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -267,9 +278,9 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Category
            AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
            Roles = "Seller")]
         public async Task<ActionResult<ApiResponse<List<CategorySM>>>> GetParentCategoriesForSeller(
-           int skip, int top, PlatformTypeSM? platform = null, long sellerId = 0)
+           int skip, int top, PlatformTypeSM? platform = null, long sellerId = 0, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _categoryProcess.GetParentCategoriesForSeller(skip, top, platform, sellerId);
+            var response = await _categoryProcess.GetParentCategoriesForSeller(skip, top, platform, sellerId, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -277,9 +288,9 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Category
         [Authorize(
             AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
             Roles = "Seller")]
-        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetParentCategoriesForSellerCount(PlatformTypeSM? platform = null, long sellerId = 0)
+        public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetParentCategoriesForSellerCount(PlatformTypeSM? platform = null, long sellerId = 0, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _categoryProcess.GetParentCategoriesForSellerCount(platform, sellerId);
+            var response = await _categoryProcess.GetParentCategoriesForSellerCount(platform, sellerId, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -357,25 +368,38 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Category
 
         #region Products
 
+        /// <summary>
+        /// Get products in SpeedyMart category with optional delivery speed filter
+        /// </summary>
+        /// <param name="categoryId">Category ID</param>
+        /// <param name="skip">Skip count</param>
+        /// <param name="top">Take count</param>
+        /// <param name="comboProductCount">Number of combo products to include</param>
+        /// <param name="deliverySpeedType">1=Normal, 2=Express, 3=Both (null for all)</param>
         [HttpGet("speedy-mart/products/user/{categoryId}")]
         [Authorize(
             AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
             Roles = "User")]
         public async Task<ActionResult<ApiResponse<UserSpeedyMartCategoryProductsSM>>> GetProductsInSpeedyMartUsingCategory(
-            long categoryId,int skip, int top, int comboProductCount)
+            long categoryId, int skip, int top, int comboProductCount, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _categoryProcess.GetProductsInSpeedyMartUsingCategory(categoryId, skip, top, comboProductCount);
+            var response = await _categoryProcess.GetProductsInSpeedyMartUsingCategory(categoryId, skip, top, comboProductCount, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
+        /// <summary>
+        /// Get count of products in SpeedyMart category with optional delivery speed filter
+        /// </summary>
+        /// <param name="categoryId">Category ID</param>
+        /// <param name="deliverySpeedType">1=Normal, 2=Express, 3=Both (null for all)</param>
         [HttpGet("speedy-mart/products/user/count/{categoryId}")]
         [Authorize(
            AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
            Roles = "User")]
         public async Task<ActionResult<ApiResponse<IntResponseRoot>>> GetProductsInSpeedyMartUsingCategoryCount(
-           long categoryId)
+           long categoryId, DeliverySpeedTypeSM? deliverySpeedType = null)
         {
-            var response = await _categoryProcess.GetProductsInSpeedyMartUsingCategoryCount(categoryId);
+            var response = await _categoryProcess.GetProductsInSpeedyMartUsingCategoryCount(categoryId, deliverySpeedType);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -490,6 +514,17 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.Category
         #endregion
 
         #region UPDATE
+
+        [HttpPut("fix-delivery-speed/{id}")]
+        [Authorize(
+            AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema,
+            Roles = "SuperAdmin, SystemAdmin")]
+        public async Task<ActionResult<ApiResponse<BoolResponseRoot>>> FixCategoryDeliverySpeed(
+            long id, DeliverySpeedTypeSM deliverySpeedType)
+        {
+            var response = await _categoryProcess.PatchDeliverySpeedTypeAsync(id, deliverySpeedType);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
 
         [HttpPut("{id}")]
         [Authorize(

@@ -132,6 +132,103 @@ namespace Siffrum.Ecom.BAL.LoginUsers
 
         #endregion
 
+        #region Platform-Specific Charges
+
+        /// <summary>
+        /// Get charge configuration for a specific platform and delivery speed
+        /// </summary>
+        public async Task<PlatformChargeConfig> GetChargesForPlatformAsync(PlatformTypeSM platformType, int deliverySpeedType = 1)
+        {
+            var settings = await GetAsync();
+            return GetChargesForPlatform(settings, platformType, deliverySpeedType);
+        }
+
+        /// <summary>
+        /// Get charge configuration from settings object
+        /// </summary>
+        public PlatformChargeConfig GetChargesForPlatform(SettingsSM settings, PlatformTypeSM platformType, int deliverySpeedType = 1)
+        {
+            // Check if new platform-specific config exists and has values
+            if (platformType == PlatformTypeSM.HotBox)
+            {
+                if (settings.HotBoxCharges != null && HasAnyChargeValue(settings.HotBoxCharges))
+                    return settings.HotBoxCharges;
+            }
+            else if (platformType == PlatformTypeSM.SpeedyMart)
+            {
+                // SpeedyMart: 1=Normal, 2=Express
+                if (deliverySpeedType == 2) // Express
+                {
+                    if (settings.SpeedyMartExpressCharges != null && HasAnyChargeValue(settings.SpeedyMartExpressCharges))
+                        return settings.SpeedyMartExpressCharges;
+                }
+                else // Normal (default)
+                {
+                    if (settings.SpeedyMartNormalCharges != null && HasAnyChargeValue(settings.SpeedyMartNormalCharges))
+                        return settings.SpeedyMartNormalCharges;
+                }
+            }
+
+            // Fallback to legacy values if platform-specific not configured
+            return new PlatformChargeConfig
+            {
+                PlatformCharge = settings.PlatormCharge,
+                CutleryCharge = settings.CutlaryCharge,
+                GiftWrapCharge = settings.GiftWrapCharge,
+                LowCartFeeCharge = settings.LowCartFeeCharge,
+                LowCartAmountValue = settings.LowCartAmountValue
+            };
+        }
+
+        /// <summary>
+        /// Calculate all charges for an order/cart
+        /// </summary>
+        public async Task<(decimal platformCharge, decimal cutleryCharge, decimal giftWrapCharge, decimal lowCartFee)> 
+            CalculateChargesAsync(decimal subTotal, PlatformTypeSM platformType, int deliverySpeedType, bool hasCutlery, bool hasGiftWrap)
+        {
+            var settings = await GetAsync();
+            var charges = GetChargesForPlatform(settings, platformType, deliverySpeedType);
+
+            // Platform charge is always applied
+            decimal platformCharge = charges.PlatformCharge;
+
+            // Cutlery charge only if applicable (NOT for SpeedyMart - food delivery only)
+            decimal cutleryCharge = (hasCutlery && platformType != PlatformTypeSM.SpeedyMart) ? charges.CutleryCharge : 0;
+
+            // Gift wrap charge only if applicable  
+            decimal giftWrapCharge = hasGiftWrap ? charges.GiftWrapCharge : 0;
+
+            // Low cart fee if subtotal is below threshold
+            decimal lowCartFee = 0;
+            if (charges.LowCartAmountValue > 0 && subTotal < charges.LowCartAmountValue)
+            {
+                lowCartFee = charges.LowCartFeeCharge;
+            }
+
+            return (platformCharge, cutleryCharge, giftWrapCharge, lowCartFee);
+        }
+
+        /// <summary>
+        /// Calculate total additional charges
+        /// </summary>
+        public async Task<decimal> CalculateTotalChargesAsync(decimal subTotal, PlatformTypeSM platformType, int deliverySpeedType, bool hasCutlery, bool hasGiftWrap)
+        {
+            var (platform, cutlery, giftWrap, lowCart) = await CalculateChargesAsync(subTotal, platformType, deliverySpeedType, hasCutlery, hasGiftWrap);
+            return platform + cutlery + giftWrap + lowCart;
+        }
+
+        private bool HasAnyChargeValue(PlatformChargeConfig config)
+        {
+            if (config == null) return false;
+            return config.PlatformCharge > 0 
+                || config.CutleryCharge > 0 
+                || config.GiftWrapCharge > 0 
+                || config.LowCartFeeCharge > 0 
+                || config.LowCartAmountValue > 0;
+        }
+
+        #endregion
+
         #region DELETE (Optional but Included)
 
         public async Task<DeleteResponseRoot> DeleteAsync()

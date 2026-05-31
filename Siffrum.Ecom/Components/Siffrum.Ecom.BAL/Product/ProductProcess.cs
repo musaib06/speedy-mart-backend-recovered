@@ -116,6 +116,42 @@ namespace Siffrum.Ecom.BAL.Product
             return response;
         }
 
+        public async Task<List<ProductSM>> GetPendingProducts(int skip, int top, PlatformTypeSM? platformType = null)
+        {
+            var query = _apiDbContext.Product.AsNoTracking()
+                .Where(x => x.ApprovalStatus == ProductStatusDM.PendingApproval);
+
+            if (platformType.HasValue)
+            {
+                var platformDm = (PlatformTypeDM)(int)platformType.Value;
+                query = query.Where(x => x.Category != null && x.Category.Platform == platformDm);
+            }
+
+            var ids = await query.OrderByDescending(x => x.Id).Skip(skip).Take(top).Select(x => x.Id).ToListAsync();
+            var response = new List<ProductSM>();
+            foreach (var id in ids)
+            {
+                var sm = await GetProductById(id);
+                if (sm != null) response.Add(sm);
+            }
+            return response;
+        }
+
+        public async Task<IntResponseRoot> GetPendingProductsCount(PlatformTypeSM? platformType = null)
+        {
+            var query = _apiDbContext.Product.AsNoTracking()
+                .Where(x => x.ApprovalStatus == ProductStatusDM.PendingApproval);
+
+            if (platformType.HasValue)
+            {
+                var platformDm = (PlatformTypeDM)(int)platformType.Value;
+                query = query.Where(x => x.Category != null && x.Category.Platform == platformDm);
+            }
+
+            var count = await query.CountAsync();
+            return new IntResponseRoot(count, "Pending Products");
+        }
+
         public async Task<IntResponseRoot> GetAllSellerProductsCount(long sellerId, int platformType = 0)
         {
             var query = _apiDbContext.Product.AsNoTracking()
@@ -677,6 +713,24 @@ namespace Siffrum.Ecom.BAL.Product
 
         #endregion Admin Product Management
 
+        #region Product Overview
+
+        public async Task<BoolResponseRoot> UpdateOverviewPointsAsync(long productId, string overviewJson)
+        {
+            var dm = await _apiDbContext.Product.FirstOrDefaultAsync(x => x.Id == productId);
+            if (dm == null)
+                throw new SiffrumException(ApiErrorTypeSM.InvalidInputData_NoLog, "Product not found");
+
+            dm.OverviewPoints = overviewJson;
+            dm.UpdatedAt = DateTime.UtcNow;
+            dm.UpdatedBy = _loginUserDetail.LoginId;
+
+            await _apiDbContext.SaveChangesAsync();
+            return new BoolResponseRoot(true, "Overview updated");
+        }
+
+        #endregion Product Overview
+
         #region Cleanup
 
         /// <summary>
@@ -768,6 +822,61 @@ namespace Siffrum.Ecom.BAL.Product
         }
 
         #endregion Cleanup
+
+        #region PRODUCT APPROVAL WORKFLOW
+
+        public async Task<BoolResponseRoot> SubmitForApprovalAsync(long productId, long sellerId)
+        {
+            var dm = await _apiDbContext.Product.FirstOrDefaultAsync(x => x.Id == productId);
+            if (dm == null)
+                throw new SiffrumException(ApiErrorTypeSM.InvalidInputData_NoLog, "Product not found");
+
+            dm.ApprovalStatus = ProductStatusDM.PendingApproval;
+            dm.SubmittedBySellerIdRaw = sellerId;
+            dm.SubmittedAt = DateTime.UtcNow;
+            dm.UpdatedAt = DateTime.UtcNow;
+            dm.UpdatedBy = _loginUserDetail.LoginId;
+
+            await _apiDbContext.SaveChangesAsync();
+            return new BoolResponseRoot(true, "Product submitted for approval");
+        }
+
+        public async Task<BoolResponseRoot> ApproveProductAsync(long productId)
+        {
+            var dm = await _apiDbContext.Product.FirstOrDefaultAsync(x => x.Id == productId);
+            if (dm == null)
+                throw new SiffrumException(ApiErrorTypeSM.InvalidInputData_NoLog, "Product not found");
+
+            dm.ApprovalStatus = ProductStatusDM.Active;
+            dm.ApprovedByAdminIdRaw = long.TryParse(_loginUserDetail.LoginId, out var aid) ? aid : (long?)null;
+            dm.ApprovedAt = DateTime.UtcNow;
+            dm.RejectionReason = null;
+            dm.UpdatedAt = DateTime.UtcNow;
+            dm.UpdatedBy = _loginUserDetail.LoginId;
+
+            await _apiDbContext.SaveChangesAsync();
+            return new BoolResponseRoot(true, "Product approved");
+        }
+
+        public async Task<BoolResponseRoot> RejectProductAsync(long productId, string rejectionReason)
+        {
+            if (string.IsNullOrWhiteSpace(rejectionReason) || rejectionReason.Trim().Length < 10)
+                throw new SiffrumException(ApiErrorTypeSM.InvalidInputData_NoLog, "Rejection reason is required (minimum 10 characters)");
+
+            var dm = await _apiDbContext.Product.FirstOrDefaultAsync(x => x.Id == productId);
+            if (dm == null)
+                throw new SiffrumException(ApiErrorTypeSM.InvalidInputData_NoLog, "Product not found");
+
+            dm.ApprovalStatus = ProductStatusDM.Rejected;
+            dm.RejectionReason = rejectionReason.Trim();
+            dm.UpdatedAt = DateTime.UtcNow;
+            dm.UpdatedBy = _loginUserDetail.LoginId;
+
+            await _apiDbContext.SaveChangesAsync();
+            return new BoolResponseRoot(true, "Product rejected");
+        }
+
+        #endregion PRODUCT APPROVAL WORKFLOW
 
     }
 }

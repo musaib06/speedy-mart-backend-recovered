@@ -37,6 +37,7 @@ namespace Siffrum.Ecom.ServiceModels.v1
         public decimal GiftWrapCharge { get; set; }
 
         public decimal LowCartFeeCharge { get; set; }
+        public decimal SurgeCharge { get; set; }
 
         public string? CookingInstructions { get; set; }
 
@@ -51,6 +52,16 @@ namespace Siffrum.Ecom.ServiceModels.v1
         public PaymentModeSM PaymentMode { get; set; }
 
         public long? SellerId { get; set; }
+
+        public PlatformTypeSM PlatformType { get; set; } = PlatformTypeSM.HotBox;
+
+        public int DeliverySpeedType { get; set; } // 0=N/A, 1=Normal, 2=Express
+
+        public decimal DiscountAmount { get; set; }
+        public long? PromoCodeId { get; set; }
+        public string? PromoCode { get; set; }
+
+        public int ItemCount { get; set; }
 
         public int PreparationTimeInMinutes { get; set; }
         public DateTime? SellerAcceptedAt { get; set; }

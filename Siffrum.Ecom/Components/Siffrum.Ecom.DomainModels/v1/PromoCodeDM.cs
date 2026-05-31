@@ -50,6 +50,9 @@ namespace Siffrum.Ecom.DomainModels.v1
         [Column("platform_type")]
         public PlatformTypeDM? PlatformType { get; set; }
 
+        [Column("applicable_delivery_speed")]
+        public DeliverySpeedTypeDM? ApplicableDeliverySpeed { get; set; }
+
         public ICollection<UserPromocodesDM> UserPromocodes { get; set; } 
 
     }
