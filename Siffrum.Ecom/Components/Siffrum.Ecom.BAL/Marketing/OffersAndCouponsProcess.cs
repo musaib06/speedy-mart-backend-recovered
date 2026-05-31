@@ -155,7 +155,39 @@ namespace Siffrum.Ecom.BAL.Marketing
             var count = await _apiDbContext.OffersAndCoupons
                 .CountAsync();
             return new IntResponseRoot(count, "Total Offers");
-        }       
+        }
+
+        public async Task<List<OffersAndCouponsSM>> GetAllByPlatform(PlatformTypeSM platform, int skip, int top)
+        {
+            var dms = await _apiDbContext.OffersAndCoupons
+                .AsNoTracking()
+                .Where(x => x.PlatformType == (PlatformTypeDM)(int)platform)
+                .OrderBy(x => x.Id)
+                .Skip(skip)
+                .Take(top)
+                .ToListAsync();
+            if (dms.Count == 0) return new List<OffersAndCouponsSM>();
+            var tasks = dms.Select(async dm =>
+            {
+                var sm = _mapper.Map<OffersAndCouponsSM>(dm);
+                if (!string.IsNullOrEmpty(dm.Base64Path))
+                {
+                    var img = await _imageProcess.ResolveImage(dm.Base64Path);
+                    sm.PathBase64 = img.Base64 ?? img.NetworkUrl;
+                    sm.NetworkPath = img.NetworkUrl;
+                }
+                return sm;
+            });
+            return (await Task.WhenAll(tasks)).ToList();
+        }
+
+        public async Task<IntResponseRoot> GetCountByPlatform(PlatformTypeSM platform)
+        {
+            var count = await _apiDbContext.OffersAndCoupons
+                .Where(x => x.PlatformType == (PlatformTypeDM)(int)platform)
+                .CountAsync();
+            return new IntResponseRoot(count, "Total Offers");
+        }
 
         #endregion
 

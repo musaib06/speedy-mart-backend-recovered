@@ -91,7 +91,8 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product
                 userId,
                 innerReq.ProductVariantId,
                 innerReq.Quantity,
-                innerReq.PlatformType);
+                innerReq.PlatformType,
+                innerReq.DeliverySpeedType);
 
             return ModelConverter.FormNewSuccessResponse(response);
         }
@@ -121,7 +122,8 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product
             var response = await _cartProcess.RemoveFromCart(
                 userId,
                 innerReq.ProductVariantId,
-                innerReq.PlatformType);
+                innerReq.PlatformType,
+                innerReq.DeliverySpeedType);
 
             return ModelConverter.FormNewSuccessResponse(response);
         }

@@ -18,5 +18,9 @@ namespace Siffrum.Ecom.ServiceModels.v1
 
         public bool IsDefault { get; set; }
         public int Priority { get; set; }
+
+        // Delivery Speed targeting for SpeedyMart
+        public bool IsNormal { get; set; } = true;   // Show for Normal delivery (default: true)
+        public bool IsExpress { get; set; } = false; // Show for Express delivery (default: false)
     }
 }

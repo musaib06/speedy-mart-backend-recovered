@@ -8,6 +8,7 @@ using Siffrum.Ecom.DomainModels.v1;
 using Siffrum.Ecom.ServiceModels.Foundation.Base.CommonResponseRoot;
 using Siffrum.Ecom.ServiceModels.Foundation.Base.Enums;
 using Siffrum.Ecom.ServiceModels.Foundation.Base.Interfaces;
+using Siffrum.Ecom.ServiceModels.Enums;
 using Siffrum.Ecom.ServiceModels.v1;
 
 namespace Siffrum.Ecom.BAL.LoginUsers
@@ -225,6 +226,173 @@ namespace Siffrum.Ecom.BAL.LoginUsers
             await _apiDbContext.SaveChangesAsync();
 
             return new DeleteResponseRoot(true, "Seller settings deleted successfully");
+        }
+
+        #endregion
+
+        #region Platform-Specific Settings Helpers
+
+        /// <summary>
+        /// Get delivery settings for a specific platform and delivery speed
+        /// </summary>
+        public async Task<object?> GetDeliverySettingsForPlatformAsync(long sellerId, PlatformTypeSM platformType, int deliverySpeedType = 1)
+        {
+            var settings = await GetBySellerIdAsync(sellerId);
+            if (settings?.SellerSettingsJson == null)
+                return null;
+
+            return GetDeliverySettingsForPlatform(settings.SellerSettingsJson, platformType, deliverySpeedType);
+        }
+
+        /// <summary>
+        /// Get delivery settings from SellerSettingsJson for a specific platform
+        /// </summary>
+        public object? GetDeliverySettingsForPlatform(SellerSettingsJson json, PlatformTypeSM platformType, int deliverySpeedType = 1)
+        {
+            // Fallback to legacy settings if platform-specific not configured
+            var legacySettings = new DeliverySettingsConfig
+            {
+                IsOrderPossible = json.IsOrderPossible,
+                IsFreeDelivery = json.IsFreeDelivery,
+                IsCodAvailable = json.IsCodAvailable,
+                MinRadiusInKms = json.MinRadiusInKms,
+                MaxRadiusInKms = json.MaxRadiusInKms,
+                MinDeliveryCharge = json.MinDeliveryCharge,
+                DeliveryChargeAfterMinRadius = json.DeliveryChargeAterMinRadius,
+                CommissionPerKm = json.CommissionPerKm,
+                IsSurge = json.IsSurge,
+                SurgeCount = json.SurgeCount,
+                SurgeCharge = json.SurgeCharge
+            };
+
+            if (platformType == PlatformTypeSM.HotBox)
+            {
+                return json.HotBoxSettings ?? legacySettings;
+            }
+            else if (platformType == PlatformTypeSM.SpeedyMart)
+            {
+                if (deliverySpeedType == 2)
+                {
+                    // SpeedyMart Express - uses DeliverySettingsConfig with radius
+                    return json.SpeedyMartExpressSettings ?? legacySettings;
+                }
+                else
+                {
+                    // SpeedyMart Normal - uses PanIndiaDeliverySettingsConfig (no radius restrictions)
+                    return json.SpeedyMartNormalSettings ?? new PanIndiaDeliverySettingsConfig
+                    {
+                        IsOrderPossible = json.IsOrderPossible,
+                        IsFreeDelivery = json.IsFreeDelivery,
+                        IsCodAvailable = json.IsCodAvailable,
+                        MinDeliveryCharge = json.MinDeliveryCharge,
+                        CommissionPerKm = json.CommissionPerKm,
+                        IsSurge = json.IsSurge,
+                        SurgeCount = json.SurgeCount,
+                        SurgeCharge = json.SurgeCharge
+                    };
+                }
+            }
+
+            return legacySettings;
+        }
+
+        /// <summary>
+        /// Check if orders are possible for a specific platform
+        /// </summary>
+        public async Task<bool> IsOrderPossibleAsync(long sellerId, PlatformTypeSM platformType, int deliverySpeedType = 1)
+        {
+            var settings = await GetDeliverySettingsForPlatformAsync(sellerId, platformType, deliverySpeedType);
+            
+            if (settings is DeliverySettingsConfig dsc)
+                return dsc.IsOrderPossible;
+            if (settings is PanIndiaDeliverySettingsConfig pisc)
+                return pisc.IsOrderPossible;
+            
+            return true; // Default to true if settings not found
+        }
+
+        /// <summary>
+        /// Check if free delivery is available for a specific platform
+        /// </summary>
+        public async Task<bool> IsFreeDeliveryAsync(long sellerId, PlatformTypeSM platformType, int deliverySpeedType = 1)
+        {
+            var settings = await GetDeliverySettingsForPlatformAsync(sellerId, platformType, deliverySpeedType);
+            
+            if (settings is DeliverySettingsConfig dsc)
+                return dsc.IsFreeDelivery;
+            if (settings is PanIndiaDeliverySettingsConfig pisc)
+                return pisc.IsFreeDelivery;
+            
+            return false;
+        }
+
+        /// <summary>
+        /// Check if COD is available for a specific platform
+        /// </summary>
+        public async Task<bool> IsCodAvailableAsync(long sellerId, PlatformTypeSM platformType, int deliverySpeedType = 1)
+        {
+            var settings = await GetDeliverySettingsForPlatformAsync(sellerId, platformType, deliverySpeedType);
+            
+            if (settings is DeliverySettingsConfig dsc)
+                return dsc.IsCodAvailable;
+            if (settings is PanIndiaDeliverySettingsConfig pisc)
+                return pisc.IsCodAvailable;
+            
+            return true;
+        }
+
+        /// <summary>
+        /// Get max radius for a seller (only applies to HotBox and SpeedyMart Express)
+        /// Returns null for SpeedyMart Normal (pan India)
+        /// </summary>
+        public async Task<int?> GetMaxRadiusAsync(long sellerId, PlatformTypeSM platformType, int deliverySpeedType = 1)
+        {
+            var settings = await GetDeliverySettingsForPlatformAsync(sellerId, platformType, deliverySpeedType);
+            
+            // Pan India (SpeedyMart Normal) has no radius restriction
+            if (settings is PanIndiaDeliverySettingsConfig)
+                return null;
+            
+            if (settings is DeliverySettingsConfig dsc)
+                return dsc.MaxRadiusInKms > 0 ? dsc.MaxRadiusInKms : (int?)null;
+            
+            return null;
+        }
+
+        /// <summary>
+        /// Get min radius for a seller (only applies to HotBox and SpeedyMart Express)
+        /// Returns null for SpeedyMart Normal (pan India)
+        /// </summary>
+        public async Task<int?> GetMinRadiusAsync(long sellerId, PlatformTypeSM platformType, int deliverySpeedType = 1)
+        {
+            var settings = await GetDeliverySettingsForPlatformAsync(sellerId, platformType, deliverySpeedType);
+            
+            // Pan India (SpeedyMart Normal) has no radius restriction
+            if (settings is PanIndiaDeliverySettingsConfig)
+                return null;
+            
+            if (settings is DeliverySettingsConfig dsc)
+                return dsc.MinRadiusInKms > 0 ? dsc.MinRadiusInKms : (int?)null;
+            
+            return null;
+        }
+
+        /// <summary>
+        /// Get delivery charge after min radius (only applies to HotBox and SpeedyMart Express)
+        /// Returns null for SpeedyMart Normal (pan India)
+        /// </summary>
+        public async Task<decimal?> GetDeliveryChargeAfterMinRadiusAsync(long sellerId, PlatformTypeSM platformType, int deliverySpeedType = 1)
+        {
+            var settings = await GetDeliverySettingsForPlatformAsync(sellerId, platformType, deliverySpeedType);
+            
+            // Pan India (SpeedyMart Normal) has no radius-based charge
+            if (settings is PanIndiaDeliverySettingsConfig)
+                return null;
+            
+            if (settings is DeliverySettingsConfig dsc)
+                return dsc.DeliveryChargeAfterMinRadius > 0 ? dsc.DeliveryChargeAfterMinRadius : (decimal?)null;
+            
+            return null;
         }
 
         #endregion

@@ -6,6 +6,7 @@ using Siffrum.Ecom.BAL.ExceptionHandler;
 using Siffrum.Ecom.BAL.Foundation.Web;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Serialization;
 using Microsoft.AspNetCore.OData;
 using Siffrum.Ecom.Foundation.Extensions;
@@ -130,7 +131,39 @@ namespace Siffrum.Ecom.Foundation
             using (var scope = app.ApplicationServices.CreateScope())
             {
                 var dbContext = scope.ServiceProvider.GetRequiredService<ApiDbContext>();
-                dbContext.Database.Migrate();
+                var logger = scope.ServiceProvider.GetRequiredService<ILogger<Startup>>();
+
+                // Get pending migrations before applying
+                var pendingMigrations = dbContext.Database.GetPendingMigrations().ToList();
+
+                if (pendingMigrations.Count == 0)
+                {
+                    // ═══════════════════════════════════════════════════════════
+                    logger.LogInformation("\n\n=======================================NO Migrations=====================\n\n");
+                    // ═══════════════════════════════════════════════════════════
+                }
+                else
+                {
+                    logger.LogInformation("\n\n═══════════════════════════════════════════════════════════════════════");
+                    logger.LogInformation("                        PENDING MIGRATIONS: {Count}", pendingMigrations.Count);
+                    logger.LogInformation("═══════════════════════════════════════════════════════════════════════\n");
+
+                    foreach (var migration in pendingMigrations)
+                    {
+                        logger.LogInformation("   📋 {Migration}", migration);
+                    }
+
+                    logger.LogInformation("\n═══════════════════════════════════════════════════════════════════════");
+                    logger.LogInformation("                         APPLYING MIGRATIONS...");
+                    logger.LogInformation("═══════════════════════════════════════════════════════════════════════\n");
+
+                    // Apply migrations
+                    dbContext.Database.Migrate();
+
+                    // ═══════════════════════════════════════════════════════════
+                    logger.LogInformation("\n\n=================================ALL migrations are done=============================\n\n");
+                    // ═══════════════════════════════════════════════════════════
+                }
 
                 // Sync SuperAdmin from appsettings (creates if missing, updates if changed)
                 var seeder = scope.ServiceProvider.GetRequiredService<SeederProcess>();

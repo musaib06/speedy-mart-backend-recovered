@@ -13,5 +13,7 @@ namespace Siffrum.Ecom.ServiceModels.v1
         public TimeSpan? CloseTime { get; set; }
 
         public bool IsClosed { get; set; }
+
+        public short PlatformType { get; set; } = 0; // 0=None/Legacy, 1=HotBox, 2=SpeedyMart
     }
 }

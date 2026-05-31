@@ -30,6 +30,12 @@ namespace Siffrum.Ecom.DomainModels.v1
         [Column("delivery_charges")]
         public decimal DeliveryCharges { get; set; }
 
+        [Column("platform_charges")]
+        public decimal PlatformCharges { get; set; } = 0;
+
+        [Column("free_delivery_threshold")]
+        public decimal FreeDeliveryThreshold { get; set; } = 0;
+
         [ForeignKey(nameof(Seller))]
         [Column("sellerId")]
         public long SellerId { get; set; }

@@ -64,7 +64,20 @@ namespace Siffrum.Ecom.BAL.Base.Location
 
             if (googleData?.Results == null || !googleData.Results.Any())
             {
-                return new UserAddressSM();
+                // Return coordinates even when geocoding fails
+                return new UserAddressSM
+                {
+                    Latitude = latitude,
+                    Longitude = longitude,
+                    Address = "",
+                    Landmark = "",
+                    Area = "",
+                    Pincode = "",
+                    City = "",
+                    State = "",
+                    Country = "",
+                    IsDefault = false
+                };
             }
 
             
@@ -72,16 +85,15 @@ namespace Siffrum.Ecom.BAL.Base.Location
             string? city = null;
             string? state = null;
             string? country = null;
-            string? address = null;
+            string? area = null;
             var preferredTypes = new[] { "street_address", "premise", "route" };
 
             var bestResult = googleData.Results
                 .FirstOrDefault(r => r.FormattedAddress != null && preferredTypes.Any(t => r.FormattedAddress.Contains(t)))
                 ?? googleData.Results.First();
-            if (bestResult.FormattedAddress.Contains(","))
-            {
-                address = bestResult.FormattedAddress.Substring(bestResult.FormattedAddress.IndexOf(",") + 1).Trim();
-            }
+            
+            // Use the full formatted address as the address
+            var address = bestResult.FormattedAddress ?? "";
             foreach (var geoResult in googleData.Results)
             {
                 if (geoResult?.AddressComponents == null)
@@ -102,6 +114,9 @@ namespace Siffrum.Ecom.BAL.Base.Location
 
                     if (component.Types.Contains("country"))
                         country = component.LongName;
+
+                    if (component.Types.Contains("sublocality") || component.Types.Contains("neighborhood"))
+                        area = component.LongName;
                     
                 }
             }
@@ -110,7 +125,7 @@ namespace Siffrum.Ecom.BAL.Base.Location
             {
                 Address = address ?? "",
                 Landmark = "",
-                Area = "",
+                Area = area ?? "",
                 Pincode = pincode ?? "",
                 City = city ?? "",
                 State = state ?? "",

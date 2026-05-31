@@ -9,30 +9,22 @@ namespace Siffrum.Ecom.BAL.Base.ImageProcess
 {
     public class ImageProcess : SiffrumBalBase
     {
-        private readonly IWebHostEnvironment _env;
         private readonly S3Settings _s3;
         private readonly IAmazonS3 _s3Client;
-        private readonly bool _useS3;
 
         public ImageProcess(IMapper mapper, ApiDbContext context, IWebHostEnvironment env, APIConfiguration config)
             : base(mapper, context)
         {
-            _env = env;
             _s3 = config.S3Settings ?? new S3Settings();
-            _useS3 = !string.IsNullOrEmpty(_s3.AccessKey) && !string.IsNullOrEmpty(_s3.SecretKey);
 
-            if (_useS3)
-            {
-                _s3Client = new AmazonS3Client(
-                    _s3.AccessKey,
-                    _s3.SecretKey,
-                    Amazon.RegionEndpoint.GetBySystemName(_s3.Region));
-                Console.WriteLine($"[ImageProcess] ✅ S3 ENABLED — Bucket: {_s3.BucketName}, Region: {_s3.Region}");
-            }
-            else
-            {
-                Console.WriteLine($"[ImageProcess] ⚠️ S3 DISABLED — AccessKey empty: {string.IsNullOrEmpty(_s3.AccessKey)}, SecretKey empty: {string.IsNullOrEmpty(_s3.SecretKey)}. Images will save to LOCAL DISK!");
-            }
+            if (string.IsNullOrEmpty(_s3.AccessKey) || string.IsNullOrEmpty(_s3.SecretKey))
+                throw new InvalidOperationException("S3 settings (AccessKey/SecretKey) are required. Configure S3Settings in appsettings.");
+
+            _s3Client = new AmazonS3Client(
+                _s3.AccessKey,
+                _s3.SecretKey,
+                Amazon.RegionEndpoint.GetBySystemName(_s3.Region));
+            Console.WriteLine($"[ImageProcess] ✅ S3 ENABLED — Bucket: {_s3.BucketName}, Region: {_s3.Region}");
         }
 
         public async Task<string?> SaveFromBase64(
@@ -70,15 +62,8 @@ namespace Siffrum.Ecom.BAL.Base.ImageProcess
 
             string fileName = $"{Guid.NewGuid()}.{imageExtension}";
 
-            if (!_useS3)
-            {
-                throw new Exception("S3 is not configured. Image upload is not allowed without S3. Check S3Settings in environment variables.");
-            }
-
-            // ── S3 upload ──
             var s3Prefix = ResolveS3Prefix(imagePath, imageExtension);
             var s3Key = $"{s3Prefix}{fileName}";
-
             var contentType = ResolveContentType(imageExtension);
 
             using var stream = new MemoryStream(fileBytes);
@@ -91,7 +76,7 @@ namespace Siffrum.Ecom.BAL.Base.ImageProcess
             };
 
             await _s3Client.PutObjectAsync(putReq);
-
+            Console.WriteLine($"[ImageProcess] ✅ Uploaded to S3: {s3Key}");
             return $"https://{_s3.BucketName}.s3.{_s3.Region}.amazonaws.com/{s3Key}";
         }
 
@@ -107,7 +92,6 @@ namespace Siffrum.Ecom.BAL.Base.ImageProcess
                 return filePath;
             }
 
-            // Old local path — no longer supported, return null
             return null;
         }
 

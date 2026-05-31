@@ -35,6 +35,12 @@ namespace Siffrum.Ecom.DomainModels.v1
         [Column("priority")]
         public int Priority { get; set; }
 
+        // Delivery Speed targeting for SpeedyMart (0=N/A, 1=Normal, 2=Express)
+        [Column("is_normal")]
+        public bool IsNormal { get; set; } = true;  // Default: show for Normal delivery
+        [Column("is_express")]
+        public bool IsExpress { get; set; } = false; // Default: don't show for Express
+
         public ICollection<ProductBannerDM> BannerProducts { get; set; }
     }
 }

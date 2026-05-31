@@ -562,21 +562,28 @@ namespace Siffrum.Ecom.BAL.LoginUsers
 
         #region READ
 
-        public async Task<List<UserSM>> GetAll(int skip, int top)
+        public async Task<List<UserSM>> GetAll(int skip, int top, string? mobile = null)
         {
-            var dms = await _apiDbContext.User
-                .AsNoTracking()
-                .OrderBy(x => x.Id)
-                .Skip(skip).Take(top)
-                .ToListAsync();
+            var query = _apiDbContext.User.AsNoTracking();
+            if (!string.IsNullOrWhiteSpace(mobile))
+            {
+                var m = mobile.Trim();
+                query = query.Where(x => x.Mobile != null && x.Mobile.Contains(m));
+            }
+            var dms = await query.OrderBy(x => x.Id).Skip(skip).Take(top).ToListAsync();
             return await MapUsersToSM(dms);
         }
 
-        public async Task<IntResponseRoot> GetAllUsersCount()
+        public async Task<IntResponseRoot> GetAllUsersCount(string? mobile = null)
         {
-            var count = await _apiDbContext.User.CountAsync();
+            var query = _apiDbContext.User.AsNoTracking();
+            if (!string.IsNullOrWhiteSpace(mobile))
+            {
+                var m = mobile.Trim();
+                query = query.Where(x => x.Mobile != null && x.Mobile.Contains(m));
+            }
+            var count = await query.CountAsync();
             return new IntResponseRoot(count, "Total Count of users");
-            
         }
 
         public async Task<UserSM?> GetByIdAsync(long id)

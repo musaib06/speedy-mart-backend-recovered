@@ -82,19 +82,39 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "User")]
         public async Task<ActionResult<ApiResponse<ProductRatingSM>>> Add([FromBody] ApiRequest<ProductRatingSM> apiRequest)
         {
-            #region Check Request 
             var innerReq = apiRequest?.ReqData;
             if (innerReq == null)
-            {
                 return BadRequest(ModelConverter.FormNewErrorResponse(DomainConstantsRoot.DisplayMessagesRoot.Display_ReqDataNotFormed, ApiErrorTypeSM.InvalidInputData_NoLog));
-            }
             var userId = User.GetUserRecordIdFromCurrentUserClaims();
             if (userId <= 0)
-            {
                 return NotFound(ModelConverter.FormNewErrorResponse(DomainConstantsRoot.DisplayMessagesRoot.Display_Id_NotFound));
-            }
-            #endregion Check Request
+            innerReq.UserId = userId;
             var response = await _productRatingProcess.AddProductRating(innerReq);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+        #endregion
+
+        #region User — My Reviews
+
+        [HttpGet("mine")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "User")]
+        public async Task<ActionResult<ApiResponse<List<ProductRatingSM>>>> GetMyReviews(int skip = 0, int top = 20)
+        {
+            var userId = User.GetUserRecordIdFromCurrentUserClaims();
+            if (userId <= 0)
+                return NotFound(ModelConverter.FormNewErrorResponse(DomainConstantsRoot.DisplayMessagesRoot.Display_Id_NotFound));
+            var response = await _productRatingProcess.GetMyReviews(userId, skip, top);
+            return ModelConverter.FormNewSuccessResponse(response);
+        }
+
+        [HttpGet("can-review/{productVariantId}")]
+        [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "User")]
+        public async Task<ActionResult<ApiResponse<BoolResponseRoot>>> CanReview(long productVariantId)
+        {
+            var userId = User.GetUserRecordIdFromCurrentUserClaims();
+            if (userId <= 0)
+                return NotFound(ModelConverter.FormNewErrorResponse(DomainConstantsRoot.DisplayMessagesRoot.Display_Id_NotFound));
+            var response = await _productRatingProcess.CanUserReview(userId, productVariantId);
             return ModelConverter.FormNewSuccessResponse(response);
         }
 
@@ -106,9 +126,6 @@ namespace Siffrum.Ecom.Foundation.Controllers.Product.ProductControllers
         [Authorize(AuthenticationSchemes = SiffrumBearerTokenAuthHandlerRoot.DefaultSchema, Roles = "SuperAdmin, SystemAdmin")]
         public async Task<ActionResult<ApiResponse<BoolResponseRoot>>> Update(long id, StatusSM status)
         {
-            #region Check Request 
-
-            #endregion Check Request
             var response = await _productRatingProcess.UpdateProductRatingStatus(id, status);
             return ModelConverter.FormNewSuccessResponse(response);
         }

@@ -8,5 +8,7 @@
         public int LowStockCount { get; set; }
         public decimal PendingPayoutAmount { get; set; }
         public double StoreRating { get; set; }
+        public int TotalOrders { get; set; }
+        public decimal TotalRevenue { get; set; }
     }
 }

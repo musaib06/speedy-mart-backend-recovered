@@ -10,6 +10,11 @@ namespace Siffrum.Ecom.ServiceModels.v1
 
         public PlatformTypeSM PlatformType { get; set; }
 
+        // SpeedyMart only: must be Normal(1) or Express(2).
+        // For products with DeliverySpeedType=Both(3), client must explicitly choose one.
+        // For HotBox items leave as null/0 (ignored).
+        public DeliverySpeedTypeSM? DeliverySpeedType { get; set; }
+
         public List<SelectedToppingItem>? SelectedToppings { get; set; }
         public List<SelectedAddonItem>? SelectedAddons { get; set; }
     }

@@ -3,6 +3,7 @@
     public enum StatusSM
     {
         Active,
-        Inactive
+        Inactive,
+        Pending
     }
 }

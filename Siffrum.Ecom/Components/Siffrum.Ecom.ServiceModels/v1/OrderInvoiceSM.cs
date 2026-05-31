@@ -29,8 +29,14 @@ namespace Siffrum.Ecom.ServiceModels.v1
         public decimal CutleryCharge { get; set; }
         public decimal GiftWrapCharge { get; set; }
         public decimal LowCartFeeCharge { get; set; }
+        public decimal SurgeCharge { get; set; }
+        public decimal TaxAmount { get; set; }
+        public decimal DiscountAmount { get; set; }
+        public string? PromoCode { get; set; }
         public decimal TipAmount { get; set; }
         public decimal TotalAmount { get; set; }
+        public decimal PaidAmount { get; set; }
+        public decimal DueAmount { get; set; }
 
         // Payment
         public string Currency { get; set; }

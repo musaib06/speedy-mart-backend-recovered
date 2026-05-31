@@ -4,6 +4,7 @@ using Newtonsoft.Json;
 using Siffrum.Ecom.BAL.ExceptionHandler;
 using Siffrum.Ecom.BAL.Foundation.Base;
 using Siffrum.Ecom.BAL.Base.ImageProcess;
+using Siffrum.Ecom.BAL.LoginUsers;
 using Siffrum.Ecom.DAL.Context;
 using Siffrum.Ecom.DomainModels.Enums;
 using Siffrum.Ecom.DomainModels.v1;
@@ -19,18 +20,21 @@ namespace Siffrum.Ecom.BAL.Product
         private readonly ILoginUserDetail _loginUserDetail;
         private readonly ProductVariantProcess _productVariantProcess;
         private readonly ImageProcess _imageProcess;
+        private readonly SettingsProcess _settingsProcess;
 
         public CartProcess(
             IMapper mapper,
             ApiDbContext apiDbContext,
             ProductVariantProcess productVariantProcess,
             ILoginUserDetail loginUserDetail,
-            ImageProcess imageProcess)
+            ImageProcess imageProcess,
+            SettingsProcess settingsProcess)
             : base(mapper, apiDbContext)
         {
             _loginUserDetail = loginUserDetail;
             _productVariantProcess = productVariantProcess;
             _imageProcess = imageProcess;
+            _settingsProcess = settingsProcess;
         }
 
         #region ODATA
@@ -114,10 +118,61 @@ namespace Siffrum.Ecom.BAL.Product
                     ApiErrorTypeSM.InvalidInputData_NoLog,
                     "Product does not belong to selected platform");
 
+            // ── SpeedyMart: validate and resolve delivery speed ──────────────────────
+            DeliverySpeedTypeDM? resolvedSpeed = null;
+            if (platform == PlatformTypeDM.SpeedyMart)
+            {
+                var productSpeed = (DeliverySpeedTypeDM)product.DeliverySpeedType;
+                var requestedSpeed = req.DeliverySpeedType.HasValue
+                    ? (DeliverySpeedTypeDM)req.DeliverySpeedType.Value
+                    : (DeliverySpeedTypeDM?)null;
+
+                if (productSpeed == DeliverySpeedTypeDM.Normal)
+                {
+                    resolvedSpeed = DeliverySpeedTypeDM.Normal;
+                }
+                else if (productSpeed == DeliverySpeedTypeDM.Express)
+                {
+                    resolvedSpeed = DeliverySpeedTypeDM.Express;
+                }
+                else // Both
+                {
+                    if (requestedSpeed == null ||
+                        (requestedSpeed != DeliverySpeedTypeDM.Normal && requestedSpeed != DeliverySpeedTypeDM.Express))
+                        throw new SiffrumException(
+                            ApiErrorTypeSM.InvalidInputData_NoLog,
+                            "This product supports both Express and Normal delivery. Please specify deliverySpeedType=1 (Normal) or 2 (Express).");
+                    resolvedSpeed = requestedSpeed;
+                }
+            }
+
             var cart = await GetOrCreateCartInternal(userId, platform);
 
-            var existingItem = cart.Items
-                .FirstOrDefault(x => x.ProductVariantId == productVariantId);
+            // Enforce Min/Max/Step rules (integer quantities)
+            int NormalizeQuantity(ProductVariantDM pv, int reqQty)
+            {
+                int q = Math.Max(reqQty, 0);
+                var min = pv.MinOrderQty.HasValue ? (int)Math.Ceiling((double)pv.MinOrderQty.Value) : 0;
+                var max = pv.MaxOrderQty.HasValue ? (int)Math.Floor((double)pv.MaxOrderQty.Value) : int.MaxValue;
+                var step = pv.OrderStepQty.HasValue && pv.OrderStepQty.Value > 0 ? (int)Math.Ceiling((double)pv.OrderStepQty.Value) : 1;
+                if (q < min) q = min;
+                if (step > 1 && q > 0)
+                {
+                    var rem = q % step;
+                    if (rem != 0) q += (step - rem);
+                }
+                if (q > max)
+                    throw new SiffrumException(ApiErrorTypeSM.InvalidInputData_NoLog, $"Maximum allowed quantity is {max}");
+                return q;
+            }
+
+            // For SpeedyMart: key cart items by (variantId + deliverySpeed) so same
+            // product can exist in both Express and Normal sub-carts simultaneously
+            var existingItem = platform == PlatformTypeDM.SpeedyMart
+                ? cart.Items.FirstOrDefault(x =>
+                    x.ProductVariantId == productVariantId &&
+                    x.DeliverySpeedType == resolvedSpeed)
+                : cart.Items.FirstOrDefault(x => x.ProductVariantId == productVariantId);
 
             // ── Resolve topping & addon prices from DB (server is source of truth) ──
             decimal toppingsTotal = 0;
@@ -182,6 +237,7 @@ namespace Siffrum.Ecom.BAL.Product
             }
             else
             {
+                quantity = NormalizeQuantity(product, quantity);
                 if (product.TotalAllowedQuantity < quantity)
                     throw new SiffrumException(
                         ApiErrorTypeSM.InvalidInputData_NoLog,
@@ -211,7 +267,8 @@ namespace Siffrum.Ecom.BAL.Product
                         SelectedToppingsJson = toppingsJson,
                         SelectedAddonsJson = addonsJson,
                         ToppingsTotal = toppingsTotal,
-                        AddonsTotal = addonsTotal
+                        AddonsTotal = addonsTotal,
+                        DeliverySpeedType = resolvedSpeed
                     });
                 }
             }
@@ -231,14 +288,21 @@ namespace Siffrum.Ecom.BAL.Product
             long userId,
             long productVariantId,
             int quantity,
-            PlatformTypeSM platformSM)
+            PlatformTypeSM platformSM,
+            DeliverySpeedTypeSM? deliverySpeedSM = null)
         {
             var platform = (PlatformTypeDM)platformSM;
+            var deliverySpeed = deliverySpeedSM.HasValue
+                ? (DeliverySpeedTypeDM?)deliverySpeedSM.Value
+                : null;
 
             var cart = await GetOrCreateCartInternal(userId, platform);
 
-            var item = cart.Items
-                .FirstOrDefault(x => x.ProductVariantId == productVariantId);
+            var item = platform == PlatformTypeDM.SpeedyMart && deliverySpeed.HasValue
+                ? cart.Items.FirstOrDefault(x =>
+                    x.ProductVariantId == productVariantId &&
+                    x.DeliverySpeedType == deliverySpeed)
+                : cart.Items.FirstOrDefault(x => x.ProductVariantId == productVariantId);
 
             if (item == null)
                 throw new SiffrumException(
@@ -260,6 +324,23 @@ namespace Siffrum.Ecom.BAL.Product
             }
             else
             {
+                int NormalizeQuantity2(ProductVariantDM pv, int reqQty)
+                {
+                    int q = Math.Max(reqQty, 0);
+                    var min = pv.MinOrderQty.HasValue ? (int)Math.Ceiling((double)pv.MinOrderQty.Value) : 0;
+                    var max = pv.MaxOrderQty.HasValue ? (int)Math.Floor((double)pv.MaxOrderQty.Value) : int.MaxValue;
+                    var step = pv.OrderStepQty.HasValue && pv.OrderStepQty.Value > 0 ? (int)Math.Ceiling((double)pv.OrderStepQty.Value) : 1;
+                    if (q < min) q = min;
+                    if (step > 1 && q > 0)
+                    {
+                        var rem = q % step;
+                        if (rem != 0) q += (step - rem);
+                    }
+                    if (q > max)
+                        throw new SiffrumException(ApiErrorTypeSM.InvalidInputData_NoLog, $"Maximum allowed quantity is {max}");
+                    return q;
+                }
+                quantity = NormalizeQuantity2(product, quantity);
                 if (product.TotalAllowedQuantity < quantity)
                     throw new SiffrumException(
                         ApiErrorTypeSM.InvalidInputData_NoLog,
@@ -285,14 +366,21 @@ namespace Siffrum.Ecom.BAL.Product
         public async Task<CombineCartSM> RemoveFromCart(
             long userId,
             long productVariantId,
-            PlatformTypeSM platformSM)
+            PlatformTypeSM platformSM,
+            DeliverySpeedTypeSM? deliverySpeedSM = null)
         {
             var platform = (PlatformTypeDM)platformSM;
+            var deliverySpeed = deliverySpeedSM.HasValue
+                ? (DeliverySpeedTypeDM?)deliverySpeedSM.Value
+                : null;
 
             var cart = await GetOrCreateCartInternal(userId, platform);
 
-            var item = cart.Items
-                .FirstOrDefault(x => x.ProductVariantId == productVariantId);
+            var item = platform == PlatformTypeDM.SpeedyMart && deliverySpeed.HasValue
+                ? cart.Items.FirstOrDefault(x =>
+                    x.ProductVariantId == productVariantId &&
+                    x.DeliverySpeedType == deliverySpeed)
+                : cart.Items.FirstOrDefault(x => x.ProductVariantId == productVariantId);
 
             if (item != null)
                 cart.Items.Remove(item);
@@ -471,21 +559,84 @@ namespace Siffrum.Ecom.BAL.Product
                 var productDictionary = speedyProducts
                     .ToDictionary(x => x.Id);
 
+                // Load variant names for UnitLabel
+                var variantNames = await _apiDbContext.ProductVariant
+                    .AsNoTracking()
+                    .Where(v => speedyProductIds.Contains(v.Id))
+                    .Select(v => new { v.Id, v.Name })
+                    .ToDictionaryAsync(v => v.Id, v => v.Name);
+
                 foreach (var item in speedyMartCart.Items)
                 {
                     productDictionary.TryGetValue(item.ProductVariantId, out var productDetails);
+                    variantNames.TryGetValue(item.ProductVariantId, out var variantName);
 
-                    response.SpeedyMartCartItems.Add(new SpeedyMartCartItemSM
+                    var smItem = new SpeedyMartCartItemSM
                     {
                         Id = item.Id,
                         CartId = item.CartId,
                         ProductVariantId = item.ProductVariantId,
-                        SpeedyMartProductDetails = productDetails, // safe null
-                        Quantity = item.Quantity,                  // ✅ FROM CART ITEM
-                        UnitPrice = item.UnitPrice,                // ✅ FROM CART ITEM
-                        TotalPrice = item.TotalPrice               // ✅ FROM CART ITEM
-                    });
+                        SpeedyMartProductDetails = productDetails,
+                        Quantity = item.Quantity,
+                        UnitPrice = item.UnitPrice,
+                        TotalPrice = item.TotalPrice,
+                        UnitLabel = variantName,
+                        DeliverySpeedType = item.DeliverySpeedType.HasValue
+                            ? (DeliverySpeedTypeSM)item.DeliverySpeedType.Value
+                            : DeliverySpeedTypeSM.Normal
+                    };
+
+                    response.SpeedyMartCartItems.Add(smItem);
                 }
+
+                // ── Express / Normal split ────────────────────────────────────────────
+                response.SpeedyMartExpressItems = response.SpeedyMartCartItems
+                    .Where(x => x.DeliverySpeedType == DeliverySpeedTypeSM.Express)
+                    .ToList();
+                response.SpeedyMartNormalItems = response.SpeedyMartCartItems
+                    .Where(x => x.DeliverySpeedType == DeliverySpeedTypeSM.Normal)
+                    .ToList();
+
+                response.SpeedyMartExpressSubTotal  = response.SpeedyMartExpressItems.Sum(x => x.TotalPrice);
+                response.SpeedyMartNormalSubTotal   = response.SpeedyMartNormalItems.Sum(x => x.TotalPrice);
+                response.SpeedyMartExpressItemCount = response.SpeedyMartExpressItems.Sum(x => x.Quantity);
+                response.SpeedyMartNormalItemCount  = response.SpeedyMartNormalItems.Sum(x => x.Quantity);
+            }
+
+            // ── Fee info for checkout ─────────────────────────────────────────────
+            var deliveryPlace = await _apiDbContext.DeliveryPlaces
+                .AsNoTracking()
+                .Where(x => x.Status == StatusDM.Active)
+                .FirstOrDefaultAsync();
+            response.DeliveryFee = deliveryPlace?.DeliveryCharges ?? 0;
+            response.PlatformFee = deliveryPlace?.PlatformCharges ?? 0;
+            response.FreeDeliveryThreshold = deliveryPlace?.FreeDeliveryThreshold ?? 0;
+
+            // ── Platform-specific charges ────────────────────────────────────────
+            var settings = await _settingsProcess.GetAsync();
+
+            // HotBox charges
+            if (settings != null)
+            {
+                var hotBoxCharges = _settingsProcess.GetChargesForPlatform(settings, PlatformTypeSM.HotBox, 1);
+                response.HotBoxPlatformCharge = hotBoxCharges.PlatformCharge;
+                response.HotBoxCutleryCharge = hotBoxCharges.CutleryCharge;
+                response.HotBoxGiftWrapCharge = hotBoxCharges.GiftWrapCharge;
+                response.HotBoxLowCartFee = hotBoxCharges.LowCartFeeCharge;
+
+                // SpeedyMart Normal charges
+                var speedyMartNormalCharges = _settingsProcess.GetChargesForPlatform(settings, PlatformTypeSM.SpeedyMart, 1);
+                response.SpeedyMartNormalPlatformCharge = speedyMartNormalCharges.PlatformCharge;
+                response.SpeedyMartNormalCutleryCharge = speedyMartNormalCharges.CutleryCharge;
+                response.SpeedyMartNormalGiftWrapCharge = speedyMartNormalCharges.GiftWrapCharge;
+                response.SpeedyMartNormalLowCartFee = speedyMartNormalCharges.LowCartFeeCharge;
+
+                // SpeedyMart Express charges
+                var speedyMartExpressCharges = _settingsProcess.GetChargesForPlatform(settings, PlatformTypeSM.SpeedyMart, 2);
+                response.SpeedyMartExpressPlatformCharge = speedyMartExpressCharges.PlatformCharge;
+                response.SpeedyMartExpressCutleryCharge = speedyMartExpressCharges.CutleryCharge;
+                response.SpeedyMartExpressGiftWrapCharge = speedyMartExpressCharges.GiftWrapCharge;
+                response.SpeedyMartExpressLowCartFee = speedyMartExpressCharges.LowCartFeeCharge;
             }
 
             return response;

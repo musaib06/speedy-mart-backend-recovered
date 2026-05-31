@@ -65,6 +65,12 @@ namespace Siffrum.Ecom.DomainModels.v1
         [Column("suggested_by_seller_id")]
         public long? SuggestedBySellerId { get; set; }
 
+        [Column("delivery_speed_type")]
+        public DeliverySpeedTypeDM DeliverySpeedType { get; set; } = DeliverySpeedTypeDM.Normal;
+
+        [Column("is_express_eligible")]
+        public bool IsExpressEligible { get; set; } = false;
+
         public ICollection<ComboCategoryDM> ComboCategories { get; set; }
         public ICollection<ProductDM> Products { get; set; }
         public ICollection<CategorySpecificationDM> CategorySpecifications { get; set; }

@@ -18,5 +18,6 @@ namespace Siffrum.Ecom.ServiceModels.v1.Dashboard.AdminDashboard
         public string PaymentStatus { get; set; } = "";
         public string PaymentMode { get; set; } = "";
         public DateTime? CreatedAt { get; set; }
+        public string PlatformType { get; set; } = "";
     }
 }
